@@ -241,7 +241,6 @@ const AddPaymentReceivedModal = ({
 
         if (advanceError) throw advanceError;
 
-        
       } else {
         // ✅ NORMAL PAYMENT
 
