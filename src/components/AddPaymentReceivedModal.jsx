@@ -153,8 +153,9 @@ const AddPaymentReceivedModal = ({
       if (!formData.payoutMonth.trim())
         newErrors.payoutMonth = "Payout month is required";
       if (!formData.dateReceived) newErrors.dateReceived = "Date is required";
-      if (!formData.bankDetailsPayout.trim())
-        newErrors.bankDetailsPayout = "Bank details are required";
+      if (!formData.bankId) {
+        newErrors.bankId = "Bank is required";
+      }
     }
 
     setErrors(newErrors);
@@ -188,35 +189,77 @@ const AddPaymentReceivedModal = ({
 
     try {
       // 🔥 CHECK REMAINING AMOUNT
-      const remaining = Number(invoiceDetails?.outstanding || 0);
-      const enteredAmount = Number(formData.amountReceived);
+      // 🔥 CHECK REMAINING ONLY FOR INVOICE PAYMENTS
+      if (formData.invoiceAvailable === "Yes") {
+        const remaining = Number(invoiceDetails?.outstanding || 0);
 
-      console.log("REMAINING:", remaining);
-      console.log("ENTERED:", enteredAmount);
+        const enteredAmount = Number(formData.amountReceived);
 
-      if (enteredAmount > remaining) {
-        alert(`❌ Payment cannot exceed remaining amount (₹ ${remaining})`);
-        return;
+        console.log("REMAINING:", remaining);
+        console.log("ENTERED:", enteredAmount);
+
+        if (enteredAmount > remaining) {
+          alert(`❌ Payment cannot exceed remaining amount (₹ ${remaining})`);
+          return;
+        }
       }
-      const { error: paymentError } = await supabase
-        .from("payments_received")
-        .insert([
-          {
-            invoice_id: invoiceDetails?.id || null,
-            amount_received: Number(formData.amountReceived),
-            payment_date: formData.dateReceived,
-            payment_ref:
-              formData.invoiceAvailable === "No"
-                ? payInReference
-                : `UI-${new Date()
-                    .toLocaleDateString("en-GB")
-                    .replace(/\//g, "")}-${Math.floor(Math.random() * 100)
-                    .toString()
-                    .padStart(2, "0")}`,
-          },
-        ]);
+      const generatedRef =
+        formData.invoiceAvailable === "No"
+          ? payInReference
+          : `UI-${new Date()
+              .toLocaleDateString("en-GB")
+              .replace(/\//g, "")}-${Math.floor(Math.random() * 100)
+              .toString()
+              .padStart(2, "0")}`;
 
-      if (paymentError) throw paymentError;
+      if (formData.invoiceAvailable === "No") {
+        // ✅ SAVE ADVANCE PAYMENT
+
+        const { error: advanceError } = await supabase
+          .from("advance_payments")
+          .insert([
+            {
+              payment_ref: payInReference,
+
+              client_name: formData.client,
+
+              ledger_name: formData.ledgerName,
+
+              entity_name: formData.entity,
+
+              department_name: formData.department,
+
+              amount: Number(formData.amountReceived),
+
+              payment_date: formData.dateReceived,
+
+              bank_id: formData.bankId,
+
+              remarks: formData.remarks || "Advance Payment",
+            },
+          ]);
+
+        if (advanceError) throw advanceError;
+
+        alert( `✅ Advance Payment Saved Successfully\n\nReference ID: ${payInReference}` );
+      } else {
+        // ✅ NORMAL PAYMENT
+
+        const { error: paymentError } = await supabase
+          .from("payments_received")
+          .insert([
+            {
+              invoice_id: invoiceDetails?.id || invoiceDetails?.dbId,
+
+              amount_received: Number(formData.amountReceived),
+
+              payment_date: formData.dateReceived,
+
+              payment_ref: generatedRef,
+            },
+          ]);
+          
+      }
 
       // 🔥🔥 ADD THIS BLOCK HERE (IMPORTANT)
 
@@ -259,8 +302,11 @@ const AddPaymentReceivedModal = ({
   };
 
   // Reset form to initial state
+
   const resetForm = () => {
     setFormData({
+      bankId: "",
+
       invoiceAvailable: "Yes",
       invoiceNumber: "",
       amountReceived: "",
@@ -272,9 +318,9 @@ const AddPaymentReceivedModal = ({
       ledgerName: "",
       paymentDescription: "",
       payoutMonth: "",
-      bankDetailsPayout: "",
       remarks: "",
     });
+
     setErrors({});
     setShowErrors(false);
   };
@@ -414,9 +460,9 @@ const AddPaymentReceivedModal = ({
                             Select Bank <span className="text-rose-600">*</span>
                           </label>
                           <select
-                            value={formData.bankId}
+                            value={formData.bankId || ""}
                             onChange={(e) =>
-                              handleChange("bankId", e.target.value)
+                              handleChange("bankId", String(e.target.value))
                             }
                             className="w-full border px-3 py-2 rounded"
                           >
@@ -684,23 +730,30 @@ const AddPaymentReceivedModal = ({
                         </div>
                         <div>
                           <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
-                            Bank Details (payout){" "}
-                            <span className="text-rose-600">*</span>
+                            Select Bank <span className="text-rose-600">*</span>
                           </label>
-                          <input
-                            type="text"
-                            value={formData.bankDetailsPayout}
+
+                          <select
+                            value={formData.bankId || ""}
                             onChange={(e) =>
-                              handleChange("bankDetailsPayout", e.target.value)
+                              handleChange("bankId", String(e.target.value))
                             }
                             className={`w-full bg-white border text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 ${
-                              showErrors && errors.bankDetailsPayout
+                              showErrors && errors.bankId
                                 ? "border-rose-500"
                                 : "border-gray-300"
                             }`}
-                            placeholder="Bank details"
-                          />
-                          <ErrorMessage error={errors.bankDetailsPayout} />
+                          >
+                            <option value="">Select Bank</option>
+
+                            {banks.map((b) => (
+                              <option key={b.id} value={b.id}>
+                                {b.bank_name}
+                              </option>
+                            ))}
+                          </select>
+
+                          <ErrorMessage error={errors.bankId} />
                         </div>
                       </div>
                     </motion.div>

@@ -176,7 +176,6 @@ const AddInvoiceModal = ({
 
   // Auto-calculate GST, Invoice Value, TDS, Verto Fee Post TDS
   useEffect(() => {
-
     const pay = parseFloat(formData.pay);
     const vertoFee = parseFloat(formData.vertoFee);
     const grossValue = parseFloat(formData.grossValue);
@@ -213,9 +212,7 @@ const AddInvoiceModal = ({
     const tds = totalBase * tdsRate;
 
     // ✅ RECEIVABLE
-    const finalTds = isManualTds
-  ? Number(formData.tds) || 0
-  : tds;
+    const finalTds = isManualTds ? Number(formData.tds) || 0 : tds;
     const receivable = invoiceValue - finalTds;
 
     // ✅ PROPORTIONAL VERT0 SHARE
@@ -243,8 +240,8 @@ const AddInvoiceModal = ({
       formData.department,
       formData.tdsPercent,
       formData.tds,
-      isManualTds
-    ]
+      isManualTds,
+    ],
   ]);
   // Auto-calculate CTC for OS department
   useEffect(() => {
@@ -362,7 +359,7 @@ const AddInvoiceModal = ({
     const tdsBase =
       payNum + vertoFeeNum + (formData.department === "OS" ? grossValueNum : 0);
 
-      const expectedTDS =
+    const expectedTDS =
       tdsBase *
       (formData.tdsPercent
         ? Number(formData.tdsPercent) / 100
@@ -433,185 +430,305 @@ const AddInvoiceModal = ({
     }));
   }, [formData.invoiceDate, formData.department]);
 
-// Handle form submission
-const handleSubmit = async (e) => {
-  e.preventDefault();
-  setShowErrors(true);
+  // Handle form submission
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setShowErrors(true);
 
-  try {
-    let clientRow;
+    try {
+      let clientRow;
 
-    if (!formData.client) {
-      alert("❌ Client is required");
-      return;
-    }
-
-    const { data: existingClient } = await supabase
-      .from("clients_master")
-      .select("id")
-      .ilike("client_name", `%${formData.client}%`)
-      .maybeSingle();
-
-    clientRow = existingClient;
-
-    if (!clientRow) {
-      // 🔴 Restrict non-admin
-      if (role !== "admin") {
-        alert("❌ Only admin can create new client");
+      if (!formData.client) {
+        alert("❌ Client is required");
         return;
       }
 
-      const { data: newClient, error: insertError } = await supabase
+      const { data: existingClient } = await supabase
         .from("clients_master")
-        .insert([
-          {
-            client_name: formData.client,
-            ledger_name: formData.ledgerName || formData.client,
-          },
-        ])
-        .select()
-        .single();
-
-      if (insertError) {
-        alert("❌ Failed to create new client");
-        return;
-      }
-
-      clientRow = newClient;
-    }
-
-    const { data: deptRow } = await supabase
-      .from("departments_master")
-      .select("id")
-      .eq("dept_code", formData.department?.trim())
-      .maybeSingle();
-
-    const { data: entityRow } = await supabase
-      .from("entity_master")
-      .select("id")
-      .ilike("entity_name", `%${formData.invoiceEntity}%`)
-      .maybeSingle();
-
-    console.log("DEBUG CHECK 👉");
-    console.log("CLIENT INPUT:", formData.client);
-    console.log("DEPT INPUT:", formData.department);
-    console.log("ENTITY INPUT:", formData.invoiceEntity);
-
-    console.log("CLIENT ROW:", clientRow);
-    console.log("DEPT ROW:", deptRow);
-    console.log("ENTITY ROW:", entityRow);
-    console.log("ENTITY:", selectedInvoice?.entity_name);
-    console.log("ENTITY LIST:", entities);
-
-    // 🚨 Validate master data
-    if (!clientRow || !deptRow || !entityRow) {
-      alert("❌ Invalid master data. Check client/entity/department.");
-      return;
-    }
-
-    // 🚫 Duplicate check ONLY for NEW invoice
-    if (!selectedInvoice) {
-      const { data: existing } = await supabase
-        .from("invoices")
         .select("id")
-        .eq("invoice_number", formData.invoiceNo)
+        .ilike("client_name", `%${formData.client}%`)
         .maybeSingle();
 
-      if (existing) {
-        alert("❌ Invoice number already exists");
+      clientRow = existingClient;
+
+      if (!clientRow) {
+        // 🔴 Restrict non-admin
+        if (role !== "admin") {
+          alert("❌ Only admin can create new client");
+          return;
+        }
+
+        const { data: newClient, error: insertError } = await supabase
+          .from("clients_master")
+          .insert([
+            {
+              client_name: formData.client,
+              ledger_name: formData.ledgerName || formData.client,
+            },
+          ])
+          .select()
+          .single();
+
+        if (insertError) {
+          alert("❌ Failed to create new client");
+          return;
+        }
+
+        clientRow = newClient;
+      }
+
+      const { data: deptRow } = await supabase
+        .from("departments_master")
+        .select("id")
+        .eq("dept_code", formData.department?.trim())
+        .maybeSingle();
+
+      const { data: entityRow } = await supabase
+        .from("entity_master")
+        .select("id")
+        .ilike("entity_name", `%${formData.invoiceEntity}%`)
+        .maybeSingle();
+
+      console.log("DEBUG CHECK 👉");
+      console.log("CLIENT INPUT:", formData.client);
+      console.log("DEPT INPUT:", formData.department);
+      console.log("ENTITY INPUT:", formData.invoiceEntity);
+
+      console.log("CLIENT ROW:", clientRow);
+      console.log("DEPT ROW:", deptRow);
+      console.log("ENTITY ROW:", entityRow);
+      console.log("ENTITY:", selectedInvoice?.entity_name);
+      console.log("ENTITY LIST:", entities);
+
+      // 🚨 Validate master data
+      if (!clientRow || !deptRow || !entityRow) {
+        alert("❌ Invalid master data. Check client/entity/department.");
         return;
       }
+
+      // 🚫 Duplicate check ONLY for NEW invoice
+      if (!selectedInvoice) {
+        const { data: existing } = await supabase
+          .from("invoices")
+          .select("id")
+          .eq("invoice_number", formData.invoiceNo)
+          .maybeSingle();
+
+        if (existing) {
+          alert("❌ Invoice number already exists");
+          return;
+        }
+      }
+
+      // 🚨 Mismatch validation
+      if (gstMismatch || tdsMismatch || invoiceMismatch) {
+        const confirmSave = window.confirm(
+          "⚠️ Values mismatch detected.\nDo you still want to save?"
+        );
+
+        if (!confirmSave) return;
+      }
+
+      const selectedBank = banks.find((b) => b.bank_name === formData.bankName);
+
+      if (!selectedBank || !selectedBank.id) {
+        alert("❌ Invalid Bank Selected");
+        return;
+      }
+
+      // 📦 Common data
+      const payload = {
+        invoice_number: formData.invoiceNo,
+        client_id: clientRow.id,
+        department_id: deptRow.id,
+        entity_id: entityRow.id,
+        invoice_date: formData.invoiceDate,
+        impact_month: formatImpactMonth(formData.impactMonth),
+        pay_head: formData.payHead,
+        bank_id: selectedBank.id,
+        pay: Number(formData.pay),
+
+        verto_fee: Number(formData.vertoFee),
+        gst: Number(formData.gst),
+        invoice_value: Number(formData.invoiceValue),
+        tds: Number(formData.tds),
+        receivable_amount: Number(formData.receivableRs),
+        expected_collection_date: formData.expectedCollectionDate,
+
+        // ✅ OS fields
+        employee_count: Number(formData.employeeCount) || 0,
+        gross_value: Number(formData.grossValue) || 0,
+        net_in_hand: Number(formData.netInHand) || 0,
+        co_pf: Number(formData.coPF) || 0,
+        co_esi: Number(formData.coESI) || 0,
+        lwf_tax: Number(formData.lwfTax) || 0,
+        pt_tax: Number(formData.ptTax) || 0,
+        other_ded: Number(formData.otherDed) || 0,
+        ctc: Number(formData.ctc) || 0,
+      };
+
+      let error;
+
+      // 🔥 ✅ MAIN LOGIC (INSERT vs UPDATE)
+      let insertedInvoice = null;
+
+      // 🔥 ✅ MAIN LOGIC (INSERT vs UPDATE)
+      if (selectedInvoice) {
+        console.log("🔥 UPDATE MODE");
+
+        const res = await supabase
+          .from("invoices")
+          .update(payload)
+          .eq("id", selectedInvoice.dbId);
+
+        error = res.error;
+      } else {
+        console.log("🔥 INSERT MODE");
+
+        // ✅ IMPORTANT
+
+        const res = await supabase
+          .from("invoices")
+          .insert([payload])
+          .select()
+          .single();
+
+        error = res.error;
+
+        const insertedInvoice = res.data;
+
+        if (formData.refNoPaymentMade && insertedInvoice) {
+          console.log(
+            "🔥 SEARCHING ADVANCE PAYMENT:",
+            formData.refNoPaymentMade
+          );
+
+          // ✅ FIND ADVANCE PAYMENT
+          const { data: advancePayment, error: advanceError } = await supabase
+            .from("advance_payments")
+            .select("*")
+            .eq("payment_ref", formData.refNoPaymentMade)
+            .maybeSingle();
+
+          console.log("ADVANCE PAYMENT:", advancePayment);
+
+          if (advanceError) {
+            console.log(advanceError);
+          }
+
+          // ✅ IF FOUND
+          if (advancePayment) {
+            // ✅ MOVE TO payments_received
+            const { error: moveError } = await supabase
+              .from("payments_received")
+              .insert([
+                {
+                  invoice_id: insertedInvoice.id,
+
+                  amount_received: advancePayment.amount,
+
+                  payment_date: advancePayment.payment_date,
+
+                  payment_ref: advancePayment.payment_ref,
+                },
+              ]);
+
+            if (moveError) {
+              console.log(moveError);
+              alert("❌ Failed to link payment");
+            } else {
+              // ✅ MARK ADJUSTED
+              await supabase
+                .from("advance_payments")
+                .update({
+                  linked_invoice_id: insertedInvoice.id,
+
+                  is_adjusted: true,
+                })
+                .eq("id", advancePayment.id);
+
+              console.log("✅ ADVANCE PAYMENT LINKED");
+
+              alert(
+                `✅ Advance Payment Linked Successfully\nRef: ${advancePayment.payment_ref}`
+              );
+            }
+          }
+        }
+
+        // 🔥 AUTO ADJUST ADVANCE PAYMENT
+        if (formData.refNoPaymentMade && insertedInvoice) {
+          console.log("🔥 CHECKING ADVANCE PAYMENT");
+
+          // ✅ FIND ADVANCE PAYMENT
+          const { data: advancePayment } = await supabase
+            .from("advance_payments")
+            .select("*")
+            .eq("payment_ref", formData.refNoPaymentMade)
+            .eq("is_adjusted", false)
+            .maybeSingle();
+
+          console.log("ADVANCE PAYMENT:", advancePayment);
+
+          // ✅ IF FOUND
+          if (advancePayment) {
+            // ✅ MOVE INTO payments_received
+            const { error: moveError } = await supabase
+              .from("payments_received")
+              .insert([
+                {
+                  invoice_id: insertedInvoice.id,
+
+                  amount_received: advancePayment.amount,
+
+                  payment_date: advancePayment.payment_date,
+
+                  payment_ref: advancePayment.payment_ref,
+                },
+              ]);
+
+            if (moveError) {
+              console.log(moveError);
+              throw moveError;
+            }
+
+            // ✅ MARK ADJUSTED
+            await supabase
+              .from("advance_payments")
+              .update({
+                linked_invoice_id: insertedInvoice.id,
+                is_adjusted: true,
+              })
+              .eq("id", advancePayment.id);
+
+            console.log("✅ ADVANCE PAYMENT LINKED");
+          }
+        }
+      }
+
+      // ❌ Error handling
+      if (error) {
+        console.error("DB Error:", error);
+        alert("❌ Failed: " + error.message);
+        return;
+      }
+
+      // ✅ Success
+      alert(selectedInvoice ? "✅ Invoice updated" : "✅ Invoice created");
+
+      // 🔄 Refresh dashboard
+      if (window.refreshClients) {
+        window.refreshClients(); // reload client list globally
+      }
+
+      // 🔄 Reset + close
+      resetForm();
+      onClose();
+    } catch (err) {
+      console.error("❌ Supabase error:", err);
+      alert("❌ Unexpected error");
     }
-
-    // 🚨 Mismatch validation
-    if (gstMismatch || tdsMismatch || invoiceMismatch) {
-      const confirmSave = window.confirm(
-        "⚠️ Values mismatch detected.\nDo you still want to save?"
-      );
-
-      if (!confirmSave) return;
-    }
-
-    const selectedBank = banks.find((b) => b.bank_name === formData.bankName);
-
-    if (!selectedBank || !selectedBank.id) {
-      alert("❌ Invalid Bank Selected");
-      return;
-    }
-
-    // 📦 Common data
-    const payload = {
-      invoice_number: formData.invoiceNo,
-      client_id: clientRow.id,
-      department_id: deptRow.id,
-      entity_id: entityRow.id,
-      invoice_date: formData.invoiceDate,
-      impact_month: formatImpactMonth(formData.impactMonth),
-      pay_head: formData.payHead,
-      bank_id: selectedBank.id,
-      pay: Number(formData.pay),
-
-      verto_fee: Number(formData.vertoFee),
-      gst: Number(formData.gst),
-      invoice_value: Number(formData.invoiceValue),
-      tds: Number(formData.tds),
-      receivable_amount: Number(formData.receivableRs),
-      expected_collection_date: formData.expectedCollectionDate,
-
-      // ✅ OS fields
-      employee_count: Number(formData.employeeCount) || 0,
-      gross_value: Number(formData.grossValue) || 0,
-      net_in_hand: Number(formData.netInHand) || 0,
-      co_pf: Number(formData.coPF) || 0,
-      co_esi: Number(formData.coESI) || 0,
-      lwf_tax: Number(formData.lwfTax) || 0,
-      pt_tax: Number(formData.ptTax) || 0,
-      other_ded: Number(formData.otherDed) || 0,
-      ctc: Number(formData.ctc) || 0,
-    };
-
-    let error;
-
-    // 🔥 ✅ MAIN LOGIC (INSERT vs UPDATE)
-    if (selectedInvoice) {
-      console.log("🔥 UPDATE MODE");
-
-      const res = await supabase
-        .from("invoices")
-        .update(payload)
-        .eq("id", selectedInvoice.dbId);
-
-      error = res.error;
-    } else {
-      console.log("🔥 INSERT MODE");
-
-      const res = await supabase.from("invoices").insert([payload]);
-      error = res.error;
-    }
-
-    // ❌ Error handling
-    if (error) {
-      console.error("DB Error:", error);
-      alert("❌ Failed: " + error.message);
-      return;
-    }
-
-    // ✅ Success
-    alert(selectedInvoice ? "✅ Invoice updated" : "✅ Invoice created");
-
-    // 🔄 Refresh dashboard
-    if (window.refreshClients) {
-      window.refreshClients(); // reload client list globally
-    }
-
-    // 🔄 Reset + close
-    resetForm();
-    onClose();
-  } catch (err) {
-    console.error("❌ Supabase error:", err);
-    alert("❌ Unexpected error");
-  }
-};
+  };
 
   // Reset form to initial state
   const resetForm = () => {
