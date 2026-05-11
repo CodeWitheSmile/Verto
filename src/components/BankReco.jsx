@@ -18,11 +18,357 @@ import {
   X,
   Plus,
   Filter,
+  ArrowLeftRight,
+  History,
+  Trash2,
+  Edit2,
 } from "lucide-react";
 import Card from "./ui/Card";
 import Button from "./ui/button";
 import Badge from "./ui/Badge";
 
+// ─── BANK TRANSFER MODAL ───────────────────────────────────────────────────────
+const BankTransferModal = ({ isOpen, onClose, banks, onSaved, editData }) => {
+  const [form, setForm] = useState({
+    transfer_date: new Date().toISOString().split("T")[0],
+    amount: "",
+    sender_bank_id: "",
+    receiver_bank_id: "",
+    remarks: "",
+  });
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (editData) {
+      setForm({
+        transfer_date: editData.transfer_date || "",
+        amount: editData.amount || "",
+        sender_bank_id: editData.sender_bank_id || "",
+        receiver_bank_id: editData.receiver_bank_id || "",
+        remarks: editData.remarks || "",
+      });
+    } else {
+      setForm({
+        transfer_date: new Date().toISOString().split("T")[0],
+        amount: "",
+        sender_bank_id: "",
+        receiver_bank_id: "",
+        remarks: "",
+      });
+    }
+  }, [editData, isOpen]);
+
+  const handleSave = async () => {
+    if (!form.transfer_date || !form.amount || !form.sender_bank_id || !form.receiver_bank_id) {
+      alert("Please fill all required fields");
+      return;
+    }
+    if (form.sender_bank_id === form.receiver_bank_id) {
+      alert("Sender and receiver bank cannot be the same");
+      return;
+    }
+    if (parseFloat(form.amount) <= 0) {
+      alert("Amount must be greater than 0");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      if (editData?.id) {
+        const { error } = await supabase
+          .from("bank_transfers")
+          .update({
+            transfer_date: form.transfer_date,
+            amount: parseFloat(form.amount),
+            sender_bank_id: form.sender_bank_id,
+            receiver_bank_id: form.receiver_bank_id,
+            remarks: form.remarks,
+          })
+          .eq("id", editData.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("bank_transfers").insert([{
+          transfer_date: form.transfer_date,
+          amount: parseFloat(form.amount),
+          sender_bank_id: form.sender_bank_id,
+          receiver_bank_id: form.receiver_bank_id,
+          remarks: form.remarks,
+          reference_no: "TRF-" + Date.now(),
+        }]);
+        if (error) throw error;
+      }
+      onSaved?.();
+      onClose();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        onClick={(e) => e.target === e.currentTarget && onClose()}
+      >
+        <motion.div
+          initial={{ scale: 0.95, opacity: 0, y: 10 }}
+          animate={{ scale: 1, opacity: 1, y: 0 }}
+          exit={{ scale: 0.95, opacity: 0 }}
+          className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden"
+        >
+          {/* Header */}
+          <div className="bg-gradient-to-r from-indigo-600 to-blue-600 p-5 text-white flex justify-between items-center">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-white/20 rounded-lg">
+                <ArrowLeftRight className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-lg">
+                  {editData ? "Edit Transfer" : "Bank to Bank Transfer"}
+                </h3>
+                <p className="text-indigo-100 text-xs">Internal fund movement</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="text-white/70 hover:text-white transition">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Form */}
+          <div className="p-5 space-y-4">
+            <div>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-1.5">
+                Date *
+              </label>
+              <input
+                type="date"
+                value={form.transfer_date}
+                onChange={(e) => setForm({ ...form, transfer_date: e.target.value })}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-1.5">
+                Amount (₹) *
+              </label>
+              <input
+                type="number"
+                value={form.amount}
+                onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                placeholder="Enter amount"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+
+            {/* Sender → Receiver visual */}
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-1.5">
+                  From Bank *
+                </label>
+                <select
+                  value={form.sender_bank_id}
+                  onChange={(e) => setForm({ ...form, sender_bank_id: e.target.value })}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-rose-50"
+                >
+                  <option value="">Select bank</option>
+                  {banks.map((b) => (
+                    <option key={b.id} value={b.id}>{b.bank_name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="mt-5 flex-shrink-0">
+                <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
+                  <ArrowLeftRight className="w-4 h-4 text-indigo-600" />
+                </div>
+              </div>
+
+              <div className="flex-1">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-1.5">
+                  To Bank *
+                </label>
+                <select
+                  value={form.receiver_bank_id}
+                  onChange={(e) => setForm({ ...form, receiver_bank_id: e.target.value })}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-emerald-50"
+                >
+                  <option value="">Select bank</option>
+                  {banks.map((b) => (
+                    <option key={b.id} value={b.id}>{b.bank_name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-1.5">
+                Remarks
+              </label>
+              <input
+                type="text"
+                value={form.remarks}
+                onChange={(e) => setForm({ ...form, remarks: e.target.value })}
+                placeholder="Optional note..."
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="px-5 pb-5 flex gap-3">
+            <button
+              onClick={onClose}
+              className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={loading}
+              className="flex-1 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition disabled:opacity-60"
+            >
+              {loading ? "Saving..." : editData ? "Update Transfer" : "Save Transfer"}
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+};
+
+// ─── BANK TRANSFER HISTORY DRAWER ─────────────────────────────────────────────
+const BankTransferHistoryDrawer = ({ isOpen, onClose, transfers, onEdit, onDelete }) => {
+  const formatCurrency = (val = 0) =>
+    `₹ ${Number(val).toLocaleString("en-IN")}`;
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 0.4 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black z-40"
+            onClick={onClose}
+          />
+          <motion.div
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            transition={{ type: "spring", damping: 25, stiffness: 200 }}
+            className="fixed right-0 top-0 h-full w-full max-w-lg bg-white shadow-2xl z-50 flex flex-col"
+          >
+            {/* Header */}
+            <div className="bg-gradient-to-r from-indigo-600 to-blue-600 p-5 text-white flex justify-between items-center flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white/20 rounded-lg">
+                  <History className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg">Transfer History</h3>
+                  <p className="text-indigo-100 text-xs">{transfers.length} transfers found</p>
+                </div>
+              </div>
+              <button onClick={onClose} className="text-white/70 hover:text-white transition">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-3">
+              {transfers.length === 0 ? (
+                <div className="text-center text-gray-400 py-16">
+                  <ArrowLeftRight className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                  <p>No transfers recorded yet</p>
+                </div>
+              ) : (
+                transfers.map((t) => (
+                  <motion.div
+                    key={t.id}
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm hover:shadow-md transition"
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <p className="text-xs text-gray-400 mb-1">
+                          {t.transfer_date
+                            ? new Date(t.transfer_date).toLocaleDateString("en-GB", {
+                                day: "2-digit", month: "short", year: "numeric",
+                              })
+                            : "-"}
+                        </p>
+                        <p className="font-bold text-lg text-gray-900">
+                          {formatCurrency(t.amount)}
+                        </p>
+                        {t.reference_no && (
+                          <p className="text-xs text-gray-400 font-mono mt-0.5">{t.reference_no}</p>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => onEdit(t)}
+                          className="p-1.5 hover:bg-indigo-50 rounded-lg text-gray-400 hover:text-indigo-600 transition"
+                          title="Edit"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => onDelete(t.id)}
+                          className="p-1.5 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-600 transition"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Bank flow visual */}
+                    <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-3">
+                      <div className="flex-1 text-center">
+                        <p className="text-xs text-gray-400 mb-1">From</p>
+                        <div className="bg-rose-100 text-rose-700 rounded-lg px-2 py-1.5 text-xs font-semibold">
+                          {t.sender_bank_name || "—"}
+                        </div>
+                      </div>
+                      <div className="flex-shrink-0">
+                        <ArrowLeftRight className="w-4 h-4 text-gray-400" />
+                      </div>
+                      <div className="flex-1 text-center">
+                        <p className="text-xs text-gray-400 mb-1">To</p>
+                        <div className="bg-emerald-100 text-emerald-700 rounded-lg px-2 py-1.5 text-xs font-semibold">
+                          {t.receiver_bank_name || "—"}
+                        </div>
+                      </div>
+                    </div>
+
+                    {t.remarks && (
+                      <p className="text-xs text-gray-500 mt-2 pl-1">
+                        💬 {t.remarks}
+                      </p>
+                    )}
+                  </motion.div>
+                ))
+              )}
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+};
+
+// ─── MAIN BANKRECO COMPONENT ───────────────────────────────────────────────────
 const BankReco = () => {
   const [bankData, setBankData] = useState([]);
   const [fundFlowData, setFundFlowData] = useState([]);
@@ -38,6 +384,12 @@ const BankReco = () => {
   const [remainingBalance, setRemainingBalance] = useState(0);
   const [showEntryModal, setShowEntryModal] = useState(false);
 
+  // ✅ NEW — Bank Transfer states
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [showTransferHistory, setShowTransferHistory] = useState(false);
+  const [transfers, setTransfers] = useState([]);
+  const [editTransfer, setEditTransfer] = useState(null);
+
   const [newEntry, setNewEntry] = useState({
     entity: "",
     bank_id: "",
@@ -47,7 +399,7 @@ const BankReco = () => {
     entry_type: "other",
   });
 
-  // ─── FETCH FUNCTIONS ───────────────────────────────────────────────────────
+  // ─── FETCH FUNCTIONS ──────────────────────────────────────────────────────
 
   const fetchBanks = async () => {
     const { data, error } = await supabase
@@ -73,12 +425,19 @@ const BankReco = () => {
     if (!error) setSoftwareEntries(data);
   };
 
-  // ✅ FIX 1 — correct column names matching master_cashflow_view
+  // ✅ NEW — Fetch transfers
+  const fetchTransfers = async () => {
+    const { data, error } = await supabase
+      .from("bank_transfer_view")
+      .select("*")
+      .order("transfer_date", { ascending: false });
+    if (!error) setTransfers(data || []);
+  };
+
   const fetchFundFlowProjection = async () => {
     const { data, error } = await supabase
       .from("master_cashflow_view")
-      .select(
-        `
+      .select(`
         month,
         full_date,
         opening_balance,
@@ -91,25 +450,23 @@ const BankReco = () => {
         bounce_risk,
         bad_debt_cn,
         projected_closing_balance
-      `
-      )
-      .order("full_date", { ascending: true }); // ✅ sort by raw date
+      `)
+      .order("full_date", { ascending: true });
 
     if (error) {
       console.error("Fund Flow Error:", error);
       return;
     }
-    console.log("Fund Flow Data:", data);
     setFundFlowData(data || []);
   };
 
-  // ─── BUILD BANK RECO DATA ──────────────────────────────────────────────────
+  // ─── BUILD BANK RECO DATA ─────────────────────────────────────────────────
 
   const buildBankRecoData = () => {
     const grouped = {};
 
     entries.forEach((entry) => {
-      if (!entry.bank_id) return; // skip null bank
+      if (!entry.bank_id) return;
 
       const month = new Date(entry.date).toISOString().slice(0, 7);
       const key = `${month}-${entry.bank_id}`;
@@ -171,13 +528,14 @@ const BankReco = () => {
     setBankData(finalData);
   };
 
-  // ─── EFFECTS ───────────────────────────────────────────────────────────────
+  // ─── EFFECTS ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
     fetchBanks();
     fetchEntries();
     fetchSoftwareEntries();
     fetchFundFlowProjection();
+    fetchTransfers(); // ✅ NEW
   }, []);
 
   useEffect(() => {
@@ -196,7 +554,6 @@ const BankReco = () => {
     }
   }, [bankData]);
 
-  // Realtime subscriptions
   useEffect(() => {
     const channel = supabase
       .channel("realtime-bank")
@@ -221,9 +578,22 @@ const BankReco = () => {
     return () => supabase.removeChannel(channel);
   }, []);
 
+  // ✅ NEW — realtime for transfers
+  useEffect(() => {
+    const channel = supabase
+      .channel("bank-transfers-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "bank_transfers" },
+        () => fetchTransfers()
+      )
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, []);
+
   window.refreshBanks = fetchBanks;
 
-  // ─── HELPERS ───────────────────────────────────────────────────────────────
+  // ─── HELPERS ──────────────────────────────────────────────────────────────
 
   const formatCurrency = (val = 0) =>
     `₹ ${(Number(val) / 100000).toFixed(2)}L`;
@@ -231,7 +601,6 @@ const BankReco = () => {
   const formatCurrencyFull = (val = 0) =>
     `₹ ${Number(val).toLocaleString("en-IN")}`;
 
-  // ✅ FIX 2 — compute income/expense/net from correct columns
   const getIncome = (row) =>
     (row.expected_receivable || 0) + (row.advance_payment || 0);
 
@@ -246,6 +615,23 @@ const BankReco = () => {
     getExpense(row) -
     (row.bounce_risk || 0) -
     (row.bad_debt_cn || 0);
+
+  // ─── TRANSFER HANDLERS ────────────────────────────────────────────────────
+
+  const handleDeleteTransfer = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this transfer?")) return;
+    const { error } = await supabase.from("bank_transfers").delete().eq("id", id);
+    if (error) {
+      alert(error.message);
+    } else {
+      fetchTransfers();
+    }
+  };
+
+  const handleEditTransfer = (transfer) => {
+    setEditTransfer(transfer);
+    setShowTransferModal(true);
+  };
 
   // ─── FILTERED / SORTED BANK DATA ──────────────────────────────────────────
 
@@ -266,7 +652,7 @@ const BankReco = () => {
       return 0;
     });
 
-  // ─── ADD BANK ENTRY ────────────────────────────────────────────────────────
+  // ─── ADD BANK ENTRY ───────────────────────────────────────────────────────
 
   const handleAddEntry = async () => {
     if (!newEntry.bank_id || !newEntry.amount || !newEntry.dateOfBankBal) {
@@ -342,10 +728,34 @@ const BankReco = () => {
     window.refreshDashboard?.();
   };
 
-  // ─── RENDER ────────────────────────────────────────────────────────────────
+  // ─── RENDER ───────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-4 pb-6">
+
+      {/* ── Bank Transfer Modal ── */}
+      <BankTransferModal
+        isOpen={showTransferModal}
+        onClose={() => {
+          setShowTransferModal(false);
+          setEditTransfer(null);
+        }}
+        banks={banks}
+        editData={editTransfer}
+        onSaved={() => {
+          fetchTransfers();
+          setEditTransfer(null);
+        }}
+      />
+
+      {/* ── Bank Transfer History Drawer ── */}
+      <BankTransferHistoryDrawer
+        isOpen={showTransferHistory}
+        onClose={() => setShowTransferHistory(false)}
+        transfers={transfers}
+        onEdit={handleEditTransfer}
+        onDelete={handleDeleteTransfer}
+      />
 
       {/* ── Filter Bar ── */}
       <Card className="p-4">
@@ -434,7 +844,6 @@ const BankReco = () => {
         <div className="flex-1 space-y-4">
 
           {activeView === "reco" ? (
-            /* ── BANK RECONCILIATION TABLE ── */
             <Card className="overflow-hidden">
               <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
                 <h3 className="font-semibold text-gray-900 flex items-center">
@@ -460,15 +869,9 @@ const BankReco = () => {
                       <th className="p-4 w-24">Month</th>
                       <th className="p-4 w-28">Date</th>
                       <th className="p-4 w-32">Bank</th>
-                      <th className="p-4 text-right w-36 text-blue-700">
-                        As Per Bank
-                      </th>
-                      <th className="p-4 text-right w-36 text-emerald-700">
-                        As Per S/w
-                      </th>
-                      <th className="p-4 text-right w-28 font-bold">
-                        Difference
-                      </th>
+                      <th className="p-4 text-right w-36 text-blue-700">As Per Bank</th>
+                      <th className="p-4 text-right w-36 text-emerald-700">As Per S/w</th>
+                      <th className="p-4 text-right w-28 font-bold">Difference</th>
                       <th className="p-4 text-center w-28">Status</th>
                       <th className="p-4 text-center w-20">View</th>
                     </tr>
@@ -476,7 +879,6 @@ const BankReco = () => {
                   <tbody className="text-sm text-gray-700 divide-y divide-gray-100">
                     {filteredData.map((row, index) => (
                       <React.Fragment key={row.id}>
-                        {/* Main Row */}
                         <motion.tr
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
@@ -493,18 +895,13 @@ const BankReco = () => {
                           }`}
                           style={{ height: "56px" }}
                         >
-                          <td className="p-4 font-medium text-gray-900">
-                            {row.month}
-                          </td>
-                          {/* ✅ FIX — use row.date (from bank_entries, always a plain date string) */}
+                          <td className="p-4 font-medium text-gray-900">{row.month}</td>
                           <td className="p-4 text-gray-600">
                             {row.date
                               ? new Date(row.date).toLocaleDateString("en-GB")
                               : "-"}
                           </td>
-                          <td className="p-4 font-medium text-gray-700">
-                            {row.bank_name}
-                          </td>
+                          <td className="p-4 font-medium text-gray-700">{row.bank_name}</td>
                           <td className="p-4 text-right font-mono text-blue-700">
                             {formatCurrency(row.asPerBankTotalBal)}
                           </td>
@@ -545,7 +942,6 @@ const BankReco = () => {
                           </td>
                         </motion.tr>
 
-                        {/* Expandable Row */}
                         <AnimatePresence>
                           {selectedRow?.id === row.id && (
                             <motion.tr
@@ -582,7 +978,6 @@ const BankReco = () => {
                                   </div>
                                 </div>
 
-                                {/* Entry breakdown */}
                                 {row.manualEntries.length > 0 && (
                                   <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
                                     <table className="w-full text-xs">
@@ -652,7 +1047,6 @@ const BankReco = () => {
             </Card>
 
           ) : (
-            /* ── FUND FLOW PROJECTION TABLE ── */
             <Card className="overflow-hidden">
               <div className="p-4 border-b border-gray-100 bg-purple-50/50 flex justify-between items-center">
                 <h3 className="font-semibold text-gray-900 flex items-center">
@@ -699,39 +1093,27 @@ const BankReco = () => {
                             className="hover:bg-purple-50"
                             style={{ height: "56px" }}
                           >
-                            {/* ✅ FIX — formatted month from SQL */}
-                            <td className="p-4 font-medium text-gray-900">
-                              {row.month}
-                            </td>
-
-                            {/* ✅ FIX — use full_date for date display, not row.date */}
+                            <td className="p-4 font-medium text-gray-900">{row.month}</td>
                             <td className="p-4 text-gray-600">
                               {row.full_date
                                 ? new Date(row.full_date).toLocaleDateString("en-GB")
                                 : "-"}
                             </td>
-
                             <td className="p-4 text-right font-mono text-blue-700">
                               {formatCurrency(row.opening_balance || 0)}
                             </td>
-
-                            {/* ✅ FIX — income = receivable + advance */}
                             <td className="p-4 text-right font-mono text-emerald-700">
                               <span className="flex items-center justify-end">
                                 <ArrowUpRight className="w-4 h-4 mr-1" />
                                 {formatCurrency(income)}
                               </span>
                             </td>
-
-                            {/* ✅ FIX — expense = salary + statutory + other + petty */}
                             <td className="p-4 text-right font-mono text-rose-700">
                               <span className="flex items-center justify-end">
                                 <ArrowDownLeft className="w-4 h-4 mr-1" />
                                 {formatCurrency(expense)}
                               </span>
                             </td>
-
-                            {/* ✅ FIX — net flow calculated correctly */}
                             <td
                               className={`p-4 text-right font-mono font-medium ${
                                 netFlow >= 0 ? "text-emerald-600" : "text-rose-600"
@@ -740,8 +1122,6 @@ const BankReco = () => {
                               {netFlow >= 0 ? "+" : ""}
                               {formatCurrency(netFlow)}
                             </td>
-
-                            {/* ✅ FIX — correct column name */}
                             <td className="p-4 text-right font-mono font-bold text-purple-700 bg-purple-50/50 text-base">
                               {formatCurrency(row.projected_closing_balance || 0)}
                             </td>
@@ -761,7 +1141,6 @@ const BankReco = () => {
           <AnimatePresence mode="wait">
 
             {activeView === "reco" && selectedRow ? (
-              /* ── SELECTED ROW DETAIL ── */
               <motion.div
                 key="detail"
                 initial={{ opacity: 0, x: 20 }}
@@ -862,7 +1241,6 @@ const BankReco = () => {
             ) : (
               <>
                 {activeView === "reco" ? (
-                  /* ── RECO SIDE PANEL (no row selected) ── */
                   <>
                     <Card className="p-4">
                       <h4 className="text-sm font-semibold text-gray-900 mb-4">
@@ -902,13 +1280,14 @@ const BankReco = () => {
                       </div>
                     </Card>
 
+                    {/* ✅ UPDATED Quick Actions with Bank Transfer */}
                     <Card className="p-4 bg-blue-50 border-blue-200">
                       <h4 className="text-sm font-semibold text-blue-900 mb-3">
                         Quick Actions
                       </h4>
                       <div className="space-y-2">
                         <select
-                          className="w-full border p-2 rounded mb-2"
+                          className="w-full border border-blue-200 p-2 rounded-lg mb-2 bg-white text-sm"
                           onChange={(e) => {
                             const bank = banks.find(
                               (b) => String(b.id) === e.target.value
@@ -923,9 +1302,12 @@ const BankReco = () => {
                             </option>
                           ))}
                         </select>
+
                         <p className="text-xs text-gray-500 mb-2">
                           Select a row to enable entry
                         </p>
+
+                        {/* Add Bank Entry */}
                         <Button
                           className="w-full justify-start"
                           variant="outline"
@@ -942,8 +1324,88 @@ const BankReco = () => {
                           <Plus className="w-4 h-4 mr-2" />
                           Add Bank Entry
                         </Button>
+
+                        {/* ✅ NEW — Bank to Bank Transfer section */}
+                        <div className="pt-2 border-t border-blue-200 mt-2">
+                          <p className="text-xs font-semibold text-blue-800 uppercase tracking-wider mb-2 flex items-center gap-1">
+                            <ArrowLeftRight className="w-3 h-3" />
+                            Bank to Bank Transfer
+                          </p>
+
+                          {/* Transfer button */}
+                          <Button
+                            className="w-full justify-start bg-indigo-600 hover:bg-indigo-700 text-white border-0 mb-2"
+                            size="sm"
+                            onClick={() => {
+                              setEditTransfer(null);
+                              setShowTransferModal(true);
+                            }}
+                          >
+                            <ArrowLeftRight className="w-4 h-4 mr-2" />
+                            New Transfer
+                          </Button>
+
+                          {/* History button */}
+                          <Button
+                            className="w-full justify-start"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowTransferHistory(true)}
+                          >
+                            <History className="w-4 h-4 mr-2" />
+                            History
+                            {transfers.length > 0 && (
+                              <span className="ml-auto bg-indigo-100 text-indigo-700 text-xs rounded-full px-2 py-0.5 font-semibold">
+                                {transfers.length}
+                              </span>
+                            )}
+                          </Button>
+
+                          {/* Mini transfer summary */}
+                          {transfers.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              {transfers.slice(0, 2).map((t) => (
+                                <div
+                                  key={t.id}
+                                  className="bg-white rounded-lg p-2 border border-indigo-100 text-xs"
+                                >
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className="text-gray-500">
+                                      {t.transfer_date
+                                        ? new Date(t.transfer_date).toLocaleDateString("en-GB", {
+                                            day: "2-digit", month: "short",
+                                          })
+                                        : "-"}
+                                    </span>
+                                    <span className="font-mono font-semibold text-indigo-700">
+                                      ₹{Number(t.amount).toLocaleString("en-IN")}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1 text-gray-600">
+                                    <span className="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded text-xs truncate max-w-[80px]">
+                                      {t.sender_bank_name || "—"}
+                                    </span>
+                                    <ArrowLeftRight className="w-3 h-3 flex-shrink-0 text-gray-400" />
+                                    <span className="bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded text-xs truncate max-w-[80px]">
+                                      {t.receiver_bank_name || "—"}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                              {transfers.length > 2 && (
+                                <button
+                                  onClick={() => setShowTransferHistory(true)}
+                                  className="text-xs text-indigo-600 hover:text-indigo-800 w-full text-center py-1"
+                                >
+                                  +{transfers.length - 2} more transfers →
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
                         <Button
-                          className="w-full justify-start"
+                          className="w-full justify-start mt-1"
                           variant="outline"
                           size="sm"
                         >
@@ -955,7 +1417,6 @@ const BankReco = () => {
                   </>
 
                 ) : (
-                  /* ── PROJECTION SUMMARY SIDE PANEL ── */
                   <Card className="p-4 bg-purple-50 border-purple-200">
                     <h4 className="text-sm font-semibold text-purple-900 mb-3">
                       Projection Summary
@@ -979,7 +1440,6 @@ const BankReco = () => {
                         <span className="text-xs text-purple-600">
                           Final Projected Balance
                         </span>
-                        {/* ✅ FIX — correct field name */}
                         <span className="font-mono font-medium text-purple-700">
                           {fundFlowData.length > 0
                             ? formatCurrency(
