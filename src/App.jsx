@@ -44,14 +44,12 @@ const App = () => {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [showPaymentMadeModal, setShowPaymentMadeModal] = useState(false);
-  const [resetFormEmail, setResetFormEmail] = useState('');
-  const [resetFormMessage, setResetFormMessage] = useState('');
+  const [resetFormEmail, setResetFormEmail] = useState("");
+  const [resetFormMessage, setResetFormMessage] = useState("");
   const [resetFormLoading, setResetFormLoading] = useState(false);
   const [paymentMadeInvoice, setPaymentMadeInvoice] = useState(null);
   const [showCNBadDebtModal, setShowCNBadDebtModal] = useState(false);
   const [showBounceBackModal, setShowBounceBackModal] = useState(false);
-  const [showStatutoryPayoutModal, setShowStatutoryPayoutModal] =
-    useState(false);
   const [showInternalTeamModal, setShowInternalTeamModal] = useState(false);
   const [showExpenseDetailsModal, setShowExpenseDetailsModal] = useState(false);
   const [showExpenseDetailsManModal, setShowExpenseDetailsManModal] =
@@ -59,7 +57,8 @@ const App = () => {
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [refreshFlag, setRefreshFlag] = useState(false);
-
+  const [showStatutoryModal, setShowStatutoryModal] = useState(false);
+  const [banks, setBanks] = useState([]);
   // Mock clients list (will be replaced with API data later)
   const clients = [
     "Acme Corp",
@@ -73,28 +72,42 @@ const App = () => {
   ];
 
   useEffect(() => {
+    fetchBanks();
+  }, []);
+
+  const fetchBanks = async () => {
+    const { data } = await supabase.from("bank_master").select("*");
+
+    setBanks(data || []);
+  };
+
+  useEffect(() => {
     window.setActiveTab = setActiveTab; // ✅ THIS FIXES YOUR ERROR
   }, []);
 
   const generateRandomPassword = (length = 10) => {
-    const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_+=';
-    return Array.from({ length }, () => charset[Math.floor(Math.random() * charset.length)]).join('');
+    const charset =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_+=";
+    return Array.from(
+      { length },
+      () => charset[Math.floor(Math.random() * charset.length)]
+    ).join("");
   };
 
   const handleAdminResetPassword = async () => {
     const email = resetFormEmail.trim();
     if (!email) {
-      alert('Enter the employee email to reset password');
+      alert("Enter the employee email to reset password");
       return;
     }
 
     setResetFormLoading(true);
-    setResetFormMessage('');
+    setResetFormMessage("");
 
     const { data: userRole, error } = await supabase
-      .from('user_roles')
-      .select('email')
-      .eq('email', email)
+      .from("user_roles")
+      .select("email")
+      .eq("email", email)
       .single();
 
     if (error) {
@@ -138,7 +151,14 @@ Share this password with the user so they can log in and update it.`
   ];
   const { user, role, loading } = useAuth();
 
-  console.log('App.jsx - User:', user?.email, 'Role:', role, 'Loading:', loading);
+  console.log(
+    "App.jsx - User:",
+    user?.email,
+    "Role:",
+    role,
+    "Loading:",
+    loading
+  );
 
   if (loading) return <div>Loading...</div>;
   if (!user) return <Login />;
@@ -361,7 +381,7 @@ Share this password with the user so they can log in and update it.`
                     } else if (action.label === "Add Bounce Back") {
                       setShowBounceBackModal(true);
                     } else if (action.label === "Add Statutory Payout") {
-                      setShowStatutoryPayoutModal(true);
+                      setShowStatutoryModal(true);
                     } else if (
                       action.label === "Add Expense Details / Material"
                     ) {
@@ -482,11 +502,15 @@ Share this password with the user so they can log in and update it.`
                       </button>
                     )}
 
-                    {role === 'admin' && (
+                    {role === "admin" && (
                       <div className="px-4 py-3 border-t border-gray-100">
-                        <p className="text-sm font-semibold text-gray-900">Reset User Password</p>
+                        <p className="text-sm font-semibold text-gray-900">
+                          Reset User Password
+                        </p>
                         <p className="text-xs text-gray-500 mb-2">
-                          Enter email and click Reset Password to verify the user exists in user_roles and generate a temporary password.
+                          Enter email and click Reset Password to verify the
+                          user exists in user_roles and generate a temporary
+                          password.
                         </p>
                         <input
                           type="email"
@@ -500,7 +524,7 @@ Share this password with the user so they can log in and update it.`
                           disabled={resetFormLoading}
                           className="w-full rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
                         >
-                          {resetFormLoading ? 'Sending...' : 'Reset Password'}
+                          {resetFormLoading ? "Sending..." : "Reset Password"}
                         </button>
                         {resetFormMessage && (
                           <p className="mt-2 whitespace-pre-line text-xs text-gray-700">
@@ -620,11 +644,11 @@ Share this password with the user so they can log in and update it.`
 
       {/* Add Statutory Payout Modal */}
       <AddStatutoryPayoutModal
-        isOpen={showStatutoryPayoutModal}
-        onClose={() => setShowStatutoryPayoutModal(false)}
+        isOpen={showStatutoryModal}
+        onClose={() => setShowStatutoryModal(false)}
         entities={entities}
+        banks={banks}
       />
-
       {/* Add Internal Team Modal */}
       <AddInternalTeamModal
         isOpen={showInternalTeamModal}
@@ -637,11 +661,11 @@ Share this password with the user so they can log in and update it.`
 
       {/* Add Expense Details Modal */}
       <AddExpenseDetailsModal
-  isOpen={showExpenseDetailsModal}
-  onClose={() => setShowExpenseDetailsModal(false)}
-  onSaved={() => setRefreshFlag(!refreshFlag)}
-  invoice={selectedInvoice}
-/>
+        isOpen={showExpenseDetailsModal}
+        onClose={() => setShowExpenseDetailsModal(false)}
+        onSaved={() => setRefreshFlag(!refreshFlag)}
+        invoice={selectedInvoice}
+      />
 
       {/* Add Expense Details/Man Modal */}
       <AddExpenseDetailsManModal

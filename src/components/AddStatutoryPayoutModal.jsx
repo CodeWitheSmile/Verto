@@ -3,10 +3,16 @@ import supabase from "../lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ArrowRight, AlertCircle, FileCheck } from "lucide-react";
 
-const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [] }) => {
+const AddStatutoryPayoutModal = ({
+  isOpen,
+  onClose,
+  entities = [],
+  banks = [],
+}) => {
   // Local form state
   const [formData, setFormData] = useState({
     entity: "",
+    bank_id: "",
     statutoryPayoutType: "GST",
     forTheMonth: "",
     totalDue: "",
@@ -195,7 +201,7 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [] }) => {
     // ❌ Prevent overpayment at backend level
     const remaining = Number(formData.totalDue || 0);
     const paying = Number(formData.totalPaid || 0);
-    
+
     if (paying > remaining) {
       alert("❌ Cannot pay more than remaining due");
       return;
@@ -221,6 +227,50 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [] }) => {
       console.error("Insert Error:", error);
       alert("Error saving data");
       return;
+    }
+
+    // ✅ INSERT INTO BANK ENTRIES
+    const { error: bankError } = await supabase.from("bank_entries").insert([
+      {
+        bank_id: formData.bank_id,
+    
+        entity: formData.entity,
+    
+        date: new Date().toISOString().split("T")[0],
+    
+        amount: Number(formData.totalPaid),
+    
+        type: "debit",
+    
+        entry_type: "statutory_payment",
+    
+        remarks: `${formData.statutoryPayoutType} Payment`,
+      },
+    ]);
+
+    if (bankError) {
+      console.error("Bank Entry Error:", bankError);
+    }
+
+    // ✅ INSERT INTO SOFTWARE ENTRIES
+    const { error: softwareError } = await supabase
+      .from("software_entries")
+      .insert([
+        {
+          bank_id: formData.bank_id,
+
+          entity: formData.entity,
+
+          date: new Date().toISOString().split("T")[0],
+
+          amount: Number(formData.totalPaid),
+
+          remarks: `${formData.statutoryPayoutType} Payment`,
+        },
+      ]);
+
+    if (softwareError) {
+      console.error("Software Entry Error:", softwareError);
     }
 
     alert("✅ Statutory Payment Saved");
@@ -390,6 +440,25 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [] }) => {
                       <ErrorMessage error={errors.forTheMonth} />
                     </div>
                   </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
+                    Bank <span className="text-rose-600">*</span>
+                  </label>
+
+                  <select
+                    value={formData.bank_id}
+                    onChange={(e) => handleChange("bank_id", e.target.value)}
+                    className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg"
+                  >
+                    <option value="">Select Bank</option>
+
+                    {banks.map((bank) => (
+                      <option key={bank.id} value={bank.id}>
+                        {bank.bank_name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Payment Details */}

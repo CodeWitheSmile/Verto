@@ -426,15 +426,49 @@ const AddExpenseDetailsModal = ({
       };
 
       let error;
+      let savedPayment;
+
       if (editData?.id) {
-        ({ error } = await supabase
+        ({ data: savedPayment, error } = await supabase
           .from("payments_made")
           .update(payload)
-          .eq("id", editData.id));
+          .eq("id", editData.id)
+          .select()
+          .single());
       } else {
-        ({ error } = await supabase.from("payments_made").insert([payload]));
+        ({ data: savedPayment, error } = await supabase
+          .from("payments_made")
+          .insert([payload])
+          .select()
+          .single());
       }
+
       if (error) throw error;
+      console.log("✅ SAVED PAYMENT:", savedPayment);
+      // ✅ CREATE TDS LIABILITY
+      if ((parseFloat(form.tdsAmount) || 0) > 0) {
+        const { error: taxErr } = await supabase
+          .from("statutory_liabilities")
+          .insert([
+            {
+              source_type: "expense",
+
+              source_id: savedPayment.id,
+
+              statutory_type: "TDS",
+
+              entity: form.entity,
+
+              amount: parseFloat(form.tdsAmount),
+
+              status: "pending",
+            },
+          ]);
+
+        if (taxErr) {
+          console.error("TDS liability error:", taxErr);
+        }
+      }
 
       // ── Bank Entry (debit) ──
       if (form.paymentMode === "bank" && form.bankId && transferAmt > 0) {
@@ -442,8 +476,7 @@ const AddExpenseDetailsModal = ({
           {
             bank_id: form.bankId,
             entity: form.entity,
-            amount: -transferAmt, // ✅ NEGATIVE — money out
-            date: form.dateOfPay,
+            amount: transferAmt,
             type: "debit",
             entry_type: "expense",
             remarks: form.paymentDescription || form.payHead || "Expense",
@@ -460,7 +493,7 @@ const AddExpenseDetailsModal = ({
             {
               bank_id: form.bankId,
               entity: form.entity,
-              amount: -transferAmt, // ✅ NEGATIVE
+              amount: transferAmt, // ✅ NEGATIVE
               date: form.dateOfPay,
               remarks: form.paymentDescription || form.payHead || "Expense",
               invoice_id: resolvedInvoiceId,
