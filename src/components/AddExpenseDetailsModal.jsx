@@ -16,22 +16,48 @@ import {
 
 // ─── MASTER DATA ──────────────────────────────────────────────────────────────
 const DEPARTMENTS = [
-  "OS", "Temp", "Rec", "BD", "Accts",
-  "HR", "Admin", "IT", "Legal", "Projects", "Others",
+  "OS",
+  "Temp",
+  "Rec",
+  "BD",
+  "Accts",
+  "HR",
+  "Admin",
+  "IT",
+  "Legal",
+  "Projects",
+  "Others",
 ];
 
 const PAY_HEADS = [
-  "Asset Purchase", "Repair", "Software", "Daily Consumable",
-  "Office Stationery", "Printing", "Courier", "Rental",
-  "Water", "Electricity", "Parking", "Donation",
-  "Internet", "Mobile Bill", "Transport", "Liaison",
-  "Consultant Fee", "Petty Cash", "Others",
+  "Asset Purchase",
+  "Repair",
+  "Software",
+  "Daily Consumable",
+  "Office Stationery",
+  "Printing",
+  "Courier",
+  "Rental",
+  "Water",
+  "Electricity",
+  "Parking",
+  "Donation",
+  "Internet",
+  "Mobile Bill",
+  "Transport",
+  "Liaison",
+  "Consultant Fee",
+  "Petty Cash",
+  "Others",
 ];
 
 const COST_HEADS = ["ops", "temp", "recruitment", "projects", "others"];
 const COST_HEAD_LABELS = {
-  ops: "Ops", temp: "Temp", recruitment: "Rec",
-  projects: "Projects", others: "Others",
+  ops: "Ops",
+  temp: "Temp",
+  recruitment: "Rec",
+  projects: "Projects",
+  others: "Others",
 };
 
 const DEFAULT_FORM = {
@@ -64,37 +90,60 @@ const FieldRow = ({ label, required, hint, error, children, highlight }) => (
     }`}
   >
     <div className="pt-2">
-      <span className={`text-sm font-medium ${highlight ? "text-orange-700" : "text-gray-700"}`}>
-        {label}{required && <span className="text-red-500 ml-1">*</span>}
+      <span
+        className={`text-sm font-medium ${
+          highlight ? "text-orange-700" : "text-gray-700"
+        }`}
+      >
+        {label}
+        {required && <span className="text-red-500 ml-1">*</span>}
       </span>
-      {hint && <p className="text-xs text-gray-400 mt-0.5 leading-tight">{hint}</p>}
+      {hint && (
+        <p className="text-xs text-gray-400 mt-0.5 leading-tight">{hint}</p>
+      )}
     </div>
     <div>
       {children}
       {error && (
         <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
-          <AlertCircle className="w-3 h-3" />{error}
+          <AlertCircle className="w-3 h-3" />
+          {error}
         </p>
       )}
     </div>
   </div>
 );
 
-const Select = ({ value, onChange, options, placeholder, error, className = "" }) => (
+const Select = ({
+  value,
+  onChange,
+  options,
+  placeholder,
+  error,
+  className = "",
+}) => (
   <div className="relative">
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
       className={`w-full border rounded-lg px-3 py-2.5 text-sm text-gray-900 appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-orange-400 transition pr-8
-        ${error ? "border-red-400 bg-red-50" : "border-gray-200 hover:border-gray-300"}
+        ${
+          error
+            ? "border-red-400 bg-red-50"
+            : "border-gray-200 hover:border-gray-300"
+        }
         ${className}`}
     >
       <option value="">{placeholder || "Select..."}</option>
       {options.map((opt) =>
         typeof opt === "string" ? (
-          <option key={opt} value={opt}>{opt}</option>
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
         ) : (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
         )
       )}
     </select>
@@ -102,7 +151,15 @@ const Select = ({ value, onChange, options, placeholder, error, className = "" }
   </div>
 );
 
-const Input = ({ value, onChange, type = "text", placeholder, error, readOnly, className = "" }) => (
+const Input = ({
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+  error,
+  readOnly,
+  className = "",
+}) => (
   <input
     type={type}
     value={value}
@@ -110,36 +167,55 @@ const Input = ({ value, onChange, type = "text", placeholder, error, readOnly, c
     placeholder={placeholder}
     readOnly={readOnly}
     className={`w-full border rounded-lg px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition
-      ${error ? "border-red-400 bg-red-50" : "border-gray-200 hover:border-gray-300"}
+      ${
+        error
+          ? "border-red-400 bg-red-50"
+          : "border-gray-200 hover:border-gray-300"
+      }
       ${readOnly ? "bg-gray-50 text-gray-600 cursor-not-allowed" : "bg-white"}
       ${className}`}
   />
 );
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
-const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice }) => {
-  const [form, setForm]       = useState(DEFAULT_FORM);
-  const [errors, setErrors]   = useState({});
+const AddExpenseDetailsModal = ({
+  isOpen,
+  onClose,
+  onSaved,
+  editData,
+  invoice,
+}) => {
+  const [form, setForm] = useState(DEFAULT_FORM);
+  const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
-  const [saved, setSaved]     = useState(false);
+  const [saved, setSaved] = useState(false);
   const [clients, setClients] = useState([]);
   const [entities, setEntities] = useState([]);
-  const [banks, setBanks]     = useState([]);
+  const [banks, setBanks] = useState([]);
 
   // ── Invoice search state (for when no invoice prop) ──
-  const [invoiceSearch, setInvoiceSearch]     = useState("");
-  const [invoiceResults, setInvoiceResults]   = useState([]);
+  const [invoiceSearch, setInvoiceSearch] = useState("");
+  const [invoiceResults, setInvoiceResults] = useState([]);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
-  const [searching, setSearching]             = useState(false);
+  const [searching, setSearching] = useState(false);
 
   // ── Fetch master data ──
   useEffect(() => {
     if (!isOpen) return;
     const fetchMasters = async () => {
       const [c, e, b] = await Promise.all([
-        supabase.from("clients_master").select("id, client_name").order("client_name"),
-        supabase.from("entity_master").select("id, entity_name").order("entity_name"),
-        supabase.from("bank_master").select("id, bank_name, account_number").order("bank_name"),
+        supabase
+          .from("clients_master")
+          .select("id, client_name")
+          .order("client_name"),
+        supabase
+          .from("entity_master")
+          .select("id, entity_name")
+          .order("entity_name"),
+        supabase
+          .from("bank_master")
+          .select("id, bank_name, account_number")
+          .order("bank_name"),
       ]);
       if (!c.error) setClients(c.data || []);
       if (!e.error) setEntities(e.data || []);
@@ -159,7 +235,9 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
         department: editData.department || "",
         payHead: editData.pay_head || "",
         paymentDescription: editData.payment_description || "",
-        monthOfExpense: editData.month_of_expense ? editData.month_of_expense.slice(0, 7) : "",
+        monthOfExpense: editData.month_of_expense
+          ? editData.month_of_expense.slice(0, 7)
+          : "",
         dueAmount: editData.due_amount || "",
         tdsAmount: editData.tds_amount || "",
         transferAmount: editData.transfer_amount || "",
@@ -226,14 +304,16 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
       try {
         let query = supabase
           .from("invoices")
-          .select(`
+          .select(
+            `
             id,
             invoice_number,
             receivable_amount,
             invoice_value,
             client_id,
             clients_master ( client_name )
-          `)
+          `
+          )
           .ilike("invoice_number", `%${invoiceSearch}%`)
           .limit(8);
 
@@ -273,26 +353,26 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
     if (errors.costHead) setErrors((prev) => ({ ...prev, costHead: "" }));
   };
 
-  const costTotal = Object.values(form.costHeadBreakup).reduce((a, b) => a + b, 0);
+  const costTotal = Object.values(form.costHeadBreakup).reduce(
+    (a, b) => a + b,
+    0
+  );
   const isAssetPurchase = form.payHead === "Asset Purchase";
 
   // ── Resolve invoice ID ──
   const resolvedInvoiceId =
-    selectedInvoice?.dbId ||
-    selectedInvoice?.id ||
-    invoice?.dbId ||
-    null;
+    selectedInvoice?.dbId || selectedInvoice?.id || invoice?.dbId || null;
 
   // ── Validation ──
   const validate = () => {
     const e = {};
-    if (!form.entity)        e.entity       = "Entity is required";
-    if (!form.department)    e.department   = "Department is required";
-    if (!form.payHead)       e.payHead      = "Pay Head is required";
+    if (!form.entity) e.entity = "Entity is required";
+    if (!form.department) e.department = "Department is required";
+    if (!form.payHead) e.payHead = "Pay Head is required";
     if (!form.monthOfExpense) e.monthOfExpense = "Month of expense is required";
     if (!form.dueAmount || parseFloat(form.dueAmount) <= 0)
       e.dueAmount = "Due amount must be > 0";
-    if (!form.dateOfPay)     e.dateOfPay    = "Date of pay is required";
+    if (!form.dateOfPay) e.dateOfPay = "Date of pay is required";
     if (form.paymentMode === "bank" && !form.bankId) e.bankId = "Select a bank";
     if (form.isBillable && form.clientType === "Client" && !resolvedInvoiceId)
       e.invoiceId = "Select an invoice for billable expense";
@@ -309,40 +389,48 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
 
     try {
       const selectedBank = banks.find((b) => b.id === form.bankId);
-      const transferAmt  = parseFloat(form.transferAmount) || 0;
-      const dueAmt       = parseFloat(form.dueAmount) || 0;
+      const transferAmt = parseFloat(form.transferAmount) || 0;
+      const dueAmt = parseFloat(form.dueAmount) || 0;
 
       // ── Payload for payments_made ──
       const payload = {
-        amount:               transferAmt,
-        invoice_id:           resolvedInvoiceId,
-        payment_date:         form.dateOfPay,
-        petty_cash:           form.payHead === "Petty Cash",
-        client_name:          form.clientType === "Client" ? form.clientName : null,
-        is_billable:          form.isBillable,
-        entity:               form.entity,
-        department:           form.department,
-        pay_head:             form.payHead,
-        payment_description:  form.paymentDescription,
-        month_of_expense:     form.monthOfExpense ? form.monthOfExpense + "-01" : null,
-        due_amount:           dueAmt,
-        tds_amount:           parseFloat(form.tdsAmount) || 0,
-        transfer_amount:      transferAmt,
-        bank_id:              form.paymentMode === "bank" ? form.bankId || null : null,
-        bank_name:            form.paymentMode === "cash" ? "Cash" : selectedBank?.bank_name || null,
-        cost_ops:             form.costHeadBreakup.ops,
-        cost_temp:            form.costHeadBreakup.temp,
-        cost_recruitment:     form.costHeadBreakup.recruitment,
-        cost_projects:        form.costHeadBreakup.projects,
-        cost_others:          form.costHeadBreakup.others,
-        issued_to:            isAssetPurchase ? form.issuedTo : null,
-        asset_warranty:       isAssetPurchase ? form.assetWarranty : null,
-        expense_remarks:      form.remarks,
+        amount: transferAmt,
+        invoice_id: resolvedInvoiceId,
+        payment_date: form.dateOfPay,
+        petty_cash: form.payHead === "Petty Cash",
+        client_name: form.clientType === "Client" ? form.clientName : null,
+        is_billable: form.isBillable,
+        entity: form.entity,
+        department: form.department,
+        pay_head: form.payHead,
+        payment_description: form.paymentDescription,
+        month_of_expense: form.monthOfExpense
+          ? form.monthOfExpense + "-01"
+          : null,
+        due_amount: dueAmt,
+        tds_amount: parseFloat(form.tdsAmount) || 0,
+        transfer_amount: transferAmt,
+        bank_id: form.paymentMode === "bank" ? form.bankId || null : null,
+        bank_name:
+          form.paymentMode === "cash"
+            ? "Cash"
+            : selectedBank?.bank_name || null,
+        cost_ops: form.costHeadBreakup.ops,
+        cost_temp: form.costHeadBreakup.temp,
+        cost_recruitment: form.costHeadBreakup.recruitment,
+        cost_projects: form.costHeadBreakup.projects,
+        cost_others: form.costHeadBreakup.others,
+        issued_to: isAssetPurchase ? form.issuedTo : null,
+        asset_warranty: isAssetPurchase ? form.assetWarranty : null,
+        expense_remarks: form.remarks,
       };
 
       let error;
       if (editData?.id) {
-        ({ error } = await supabase.from("payments_made").update(payload).eq("id", editData.id));
+        ({ error } = await supabase
+          .from("payments_made")
+          .update(payload)
+          .eq("id", editData.id));
       } else {
         ({ error } = await supabase.from("payments_made").insert([payload]));
       }
@@ -350,28 +438,34 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
 
       // ── Bank Entry (debit) ──
       if (form.paymentMode === "bank" && form.bankId && transferAmt > 0) {
-        const { error: bankErr } = await supabase.from("bank_entries").insert([{
-          bank_id:        form.bankId,
-          entity:         form.entity,
-          amount:         -transferAmt,            // ✅ NEGATIVE — money out
-          date:           form.dateOfPay,
-          type:           "debit",
-          entry_type:     "expense",
-          remarks:        form.paymentDescription || form.payHead || "Expense",
-          reference_no:   "EXP-" + Date.now(),
-          invoice_id:     resolvedInvoiceId,
-        }]);
+        const { error: bankErr } = await supabase.from("bank_entries").insert([
+          {
+            bank_id: form.bankId,
+            entity: form.entity,
+            amount: -transferAmt, // ✅ NEGATIVE — money out
+            date: form.dateOfPay,
+            type: "debit",
+            entry_type: "expense",
+            remarks: form.paymentDescription || form.payHead || "Expense",
+            reference_no: "EXP-" + Date.now(),
+            invoice_id: resolvedInvoiceId,
+          },
+        ]);
         if (bankErr) console.error("Bank entry error:", bankErr);
 
         // ── Software Entry ──
-        const { error: swErr } = await supabase.from("software_entries").insert([{
-          bank_id:    form.bankId,
-          entity:     form.entity,
-          amount:     -transferAmt,                // ✅ NEGATIVE
-          date:       form.dateOfPay,
-          remarks:    form.paymentDescription || form.payHead || "Expense",
-          invoice_id: resolvedInvoiceId,
-        }]);
+        const { error: swErr } = await supabase
+          .from("software_entries")
+          .insert([
+            {
+              bank_id: form.bankId,
+              entity: form.entity,
+              amount: -transferAmt, // ✅ NEGATIVE
+              date: form.dateOfPay,
+              remarks: form.paymentDescription || form.payHead || "Expense",
+              invoice_id: resolvedInvoiceId,
+            },
+          ]);
         if (swErr) console.error("Software entry error:", swErr);
       }
 
@@ -429,7 +523,9 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
     <div className="fixed inset-0 z-[99999]">
       {/* Backdrop */}
       <motion.div
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onClose}
       />
@@ -454,17 +550,21 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
                 <h3 className="font-bold text-lg leading-tight">
                   {editData ? "Edit" : "Add"} Non-Salary Expense / Payout
                 </h3>
-                <p className="text-orange-100 text-xs">Fill all required fields marked with *</p>
+                <p className="text-orange-100 text-xs">
+                  Fill all required fields marked with *
+                </p>
               </div>
             </div>
-            <button onClick={onClose} className="text-white/70 hover:text-white transition p-1">
+            <button
+              onClick={onClose}
+              className="text-white/70 hover:text-white transition p-1"
+            >
               <X className="w-5 h-5" />
             </button>
           </div>
 
           {/* ── Body ── */}
           <div className="overflow-y-auto flex-1 px-6 py-4 space-y-6">
-
             {/* ══ SECTION 1: HEADER INFO ══ */}
             <section>
               <div className="flex items-center gap-2 mb-3">
@@ -474,9 +574,12 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
                 </h4>
               </div>
               <div className="bg-gray-50 rounded-xl p-4 divide-y divide-gray-100">
-
                 {/* Client / Verto */}
-                <FieldRow label="Client Name / Verto" required hint="Select Verto for internal expenses">
+                <FieldRow
+                  label="Client Name / Verto"
+                  required
+                  hint="Select Verto for internal expenses"
+                >
                   <div className="flex gap-3 flex-wrap">
                     <div className="flex gap-2">
                       {["Verto", "Client"].map((opt) => (
@@ -490,9 +593,11 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
                             setInvoiceResults([]);
                           }}
                           className={`px-4 py-2 rounded-lg text-sm font-medium transition border
-                            ${form.clientType === opt
-                              ? "bg-orange-500 text-white border-orange-500"
-                              : "bg-white text-gray-600 border-gray-200 hover:border-orange-300"}`}
+                            ${
+                              form.clientType === opt
+                                ? "bg-orange-500 text-white border-orange-500"
+                                : "bg-white text-gray-600 border-gray-200 hover:border-orange-300"
+                            }`}
                         >
                           {opt}
                         </button>
@@ -507,7 +612,10 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
                           setInvoiceSearch("");
                           setInvoiceResults([]);
                         }}
-                        options={clients.map((c) => ({ value: c.client_name, label: c.client_name }))}
+                        options={clients.map((c) => ({
+                          value: c.client_name,
+                          label: c.client_name,
+                        }))}
                         placeholder="Select client..."
                         error={errors.clientName}
                       />
@@ -518,17 +626,22 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
                 {/* Billable */}
                 <FieldRow label="Billable / Non Billable">
                   <div className="flex gap-3 pt-1">
-                    {[{ label: "Billable", value: true }, { label: "Non Billable", value: false }].map((opt) => (
+                    {[
+                      { label: "Billable", value: true },
+                      { label: "Non Billable", value: false },
+                    ].map((opt) => (
                       <button
                         key={opt.label}
                         type="button"
                         onClick={() => setField("isBillable", opt.value)}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition border
-                          ${form.isBillable === opt.value
-                            ? opt.value
-                              ? "bg-emerald-500 text-white border-emerald-500"
-                              : "bg-slate-500 text-white border-slate-500"
-                            : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"}`}
+                          ${
+                            form.isBillable === opt.value
+                              ? opt.value
+                                ? "bg-emerald-500 text-white border-emerald-500"
+                                : "bg-slate-500 text-white border-slate-500"
+                              : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+                          }`}
                       >
                         {opt.label}
                       </button>
@@ -564,11 +677,17 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
                           </p>
                           <p className="text-xs text-gray-500">
                             {selectedInvoice.clients_master?.client_name} •{" "}
-                            Outstanding: ₹{Number(selectedInvoice.receivable_amount || 0).toLocaleString("en-IN")}
+                            Outstanding: ₹
+                            {Number(
+                              selectedInvoice.receivable_amount || 0
+                            ).toLocaleString("en-IN")}
                           </p>
                         </div>
                         <button
-                          onClick={() => { setSelectedInvoice(null); setInvoiceSearch(""); }}
+                          onClick={() => {
+                            setSelectedInvoice(null);
+                            setInvoiceSearch("");
+                          }}
                           className="text-xs text-rose-500 hover:text-rose-700 ml-3"
                         >
                           Change
@@ -584,10 +703,16 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
                           value={invoiceSearch}
                           onChange={(e) => setInvoiceSearch(e.target.value)}
                           className={`w-full border rounded-lg pl-9 pr-4 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400 transition
-                            ${errors.invoiceId ? "border-red-400" : "border-gray-200"}`}
+                            ${
+                              errors.invoiceId
+                                ? "border-red-400"
+                                : "border-gray-200"
+                            }`}
                         />
                         {searching && (
-                          <p className="text-xs text-gray-400 mt-1 px-1">Searching...</p>
+                          <p className="text-xs text-gray-400 mt-1 px-1">
+                            Searching...
+                          </p>
                         )}
                         {invoiceResults.length > 0 && (
                           <div className="absolute z-20 top-full left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg mt-1 max-h-52 overflow-y-auto">
@@ -600,7 +725,10 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
                                   setInvoiceResults([]);
                                   // Auto-fill client name
                                   if (inv.clients_master?.client_name) {
-                                    setField("clientName", inv.clients_master.client_name);
+                                    setField(
+                                      "clientName",
+                                      inv.clients_master.client_name
+                                    );
                                   }
                                 }}
                                 className="w-full text-left px-4 py-3 hover:bg-orange-50 transition text-sm border-b border-gray-100 last:border-0"
@@ -610,17 +738,22 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
                                 </p>
                                 <p className="text-xs text-gray-500 mt-0.5">
                                   {inv.clients_master?.client_name} •{" "}
-                                  Outstanding: ₹{Number(inv.receivable_amount || 0).toLocaleString("en-IN")}
+                                  Outstanding: ₹
+                                  {Number(
+                                    inv.receivable_amount || 0
+                                  ).toLocaleString("en-IN")}
                                 </p>
                               </button>
                             ))}
                           </div>
                         )}
-                        {invoiceResults.length === 0 && invoiceSearch.length > 1 && !searching && (
-                          <p className="text-xs text-gray-400 mt-1 px-1">
-                            No invoices found for "{invoiceSearch}"
-                          </p>
-                        )}
+                        {invoiceResults.length === 0 &&
+                          invoiceSearch.length > 1 &&
+                          !searching && (
+                            <p className="text-xs text-gray-400 mt-1 px-1">
+                              No invoices found for "{invoiceSearch}"
+                            </p>
+                          )}
                       </div>
                     )}
                   </FieldRow>
@@ -631,14 +764,22 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
                   <Select
                     value={form.entity}
                     onChange={(v) => setField("entity", v)}
-                    options={entities.map((e) => ({ value: e.entity_name, label: e.entity_name }))}
+                    options={entities.map((e) => ({
+                      value: e.entity_name,
+                      label: e.entity_name,
+                    }))}
                     placeholder="Select entity..."
                     error={errors.entity}
                   />
                 </FieldRow>
 
                 {/* Department */}
-                <FieldRow label="Department" required error={errors.department} highlight>
+                <FieldRow
+                  label="Department"
+                  required
+                  error={errors.department}
+                  highlight
+                >
                   <Select
                     value={form.department}
                     onChange={(v) => setField("department", v)}
@@ -649,7 +790,12 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
                 </FieldRow>
 
                 {/* Pay Head */}
-                <FieldRow label="Pay Head – Non Salary" required error={errors.payHead} highlight>
+                <FieldRow
+                  label="Pay Head – Non Salary"
+                  required
+                  error={errors.payHead}
+                  highlight
+                >
                   <Select
                     value={form.payHead}
                     onChange={(v) => setField("payHead", v)}
@@ -670,18 +816,23 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
                 </h4>
               </div>
               <div className="bg-gray-50 rounded-xl p-4 divide-y divide-gray-100">
-
                 <FieldRow label="Payment Description">
                   <textarea
                     value={form.paymentDescription}
-                    onChange={(e) => setField("paymentDescription", e.target.value)}
+                    onChange={(e) =>
+                      setField("paymentDescription", e.target.value)
+                    }
                     placeholder="Describe the expense..."
                     rows={2}
                     className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white resize-none"
                   />
                 </FieldRow>
 
-                <FieldRow label="Month of Expense" required error={errors.monthOfExpense}>
+                <FieldRow
+                  label="Month of Expense"
+                  required
+                  error={errors.monthOfExpense}
+                >
                   <Input
                     type="month"
                     value={form.monthOfExpense}
@@ -691,28 +842,60 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
                 </FieldRow>
 
                 {/* Due / TDS / Transfer */}
-                <FieldRow label="Due / TDS / Transfer" required error={errors.dueAmount}>
+                <FieldRow
+                  label="Due / TDS / Transfer"
+                  required
+                  error={errors.dueAmount}
+                >
                   <div className="grid grid-cols-3 gap-3">
                     {[
-                      { label: "Due Amount *", key: "dueAmount", readOnly: false, style: errors.dueAmount ? "border-red-400 bg-red-50" : "border-gray-200 bg-white" },
-                      { label: "TDS Amount", key: "tdsAmount", readOnly: false, style: "border-gray-200 bg-white" },
-                      { label: "Transfer Amount", key: "transferAmount", readOnly: true, style: "border-emerald-200 bg-emerald-50 text-emerald-700 font-semibold" },
+                      {
+                        label: "Due Amount *",
+                        key: "dueAmount",
+                        readOnly: false,
+                        style: errors.dueAmount
+                          ? "border-red-400 bg-red-50 text-gray-900"
+                          : "border-gray-200 bg-white text-gray-900",
+                      },
+                      {
+                        label: "TDS Amount",
+                        key: "tdsAmount",
+                        readOnly: false,
+                        style: "border-gray-200 bg-white text-gray-900",
+                      },
+                      {
+                        label: "Transfer Amount",
+                        key: "transferAmount",
+                        readOnly: true,
+                        style:
+                          "border-emerald-200 bg-emerald-50 text-gray-900 font-semibold",
+                      },
                     ].map((f) => (
                       <div key={f.key}>
-                        <label className="text-xs text-gray-500 mb-1 block">{f.label}</label>
+                        <label className="text-xs text-gray-500 mb-1 block">
+                          {f.label}
+                        </label>
                         <div className="relative">
-                          <span className="absolute left-3 top-2.5 text-gray-400 text-sm">₹</span>
+                          <span className="absolute left-3 top-2.5 text-gray-400 text-sm">
+                            ₹
+                          </span>
                           <input
                             type="number"
                             value={form[f.key]}
-                            onChange={(e) => !f.readOnly && setField(f.key, e.target.value)}
+                            onChange={(e) =>
+                              !f.readOnly && setField(f.key, e.target.value)
+                            }
                             readOnly={f.readOnly}
                             placeholder="0"
-                            className={`w-full border rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 ${f.style} ${f.readOnly ? "cursor-not-allowed" : ""}`}
+                            className={`w-full border rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 ${
+                              f.style
+                            } ${f.readOnly ? "cursor-not-allowed" : ""}`}
                           />
                         </div>
                         {f.key === "transferAmount" && (
-                          <p className="text-xs text-gray-400 mt-0.5">= Due − TDS (auto)</p>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            = Due − TDS (auto)
+                          </p>
                         )}
                       </div>
                     ))}
@@ -732,15 +915,20 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
                 <FieldRow label="Bank / Cash" required error={errors.bankId}>
                   <div className="space-y-2">
                     <div className="flex gap-3">
-                      {[{ label: "Bank Transfer", value: "bank" }, { label: "Cash", value: "cash" }].map((opt) => (
+                      {[
+                        { label: "Bank Transfer", value: "bank" },
+                        { label: "Cash", value: "cash" },
+                      ].map((opt) => (
                         <button
                           key={opt.value}
                           type="button"
                           onClick={() => setField("paymentMode", opt.value)}
                           className={`px-4 py-2 rounded-lg text-sm font-medium transition border
-                            ${form.paymentMode === opt.value
-                              ? "bg-blue-500 text-white border-blue-500"
-                              : "bg-white text-gray-600 border-gray-200 hover:border-blue-300"}`}
+                            ${
+                              form.paymentMode === opt.value
+                                ? "bg-blue-500 text-white border-blue-500"
+                                : "bg-white text-gray-600 border-gray-200 hover:border-blue-300"
+                            }`}
                         >
                           {opt.label}
                         </button>
@@ -800,13 +988,21 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
                       </label>
                       <div className="relative">
                         <input
-                          type="number" min="0" max="100"
+                          type="number"
+                          min="0"
+                          max="100"
                           value={form.costHeadBreakup[head]}
                           onChange={(e) => setCostHead(head, e.target.value)}
                           className={`w-full border rounded-lg px-3 py-2.5 pr-7 text-sm text-center font-semibold text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-orange-400
-                            ${errors.costHead ? "border-red-300 bg-red-50" : "border-gray-200 hover:border-gray-300"}`}
+                            ${
+                              errors.costHead
+                                ? "border-red-300 bg-red-50"
+                                : "border-gray-200 hover:border-gray-300"
+                            }`}
                         />
-                        <span className="absolute right-2.5 top-2.5 text-gray-500 font-medium text-xs">%</span>
+                        <span className="absolute right-2.5 top-2.5 text-gray-500 font-medium text-xs">
+                          %
+                        </span>
                       </div>
                     </div>
                   ))}
@@ -815,7 +1011,13 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
                 {/* Visual bar */}
                 <div className="mt-4 h-2 bg-gray-200 rounded-full overflow-hidden flex">
                   {COST_HEADS.map((head, i) => {
-                    const colors = ["bg-blue-400", "bg-emerald-400", "bg-orange-400", "bg-purple-400", "bg-gray-400"];
+                    const colors = [
+                      "bg-blue-400",
+                      "bg-emerald-400",
+                      "bg-orange-400",
+                      "bg-purple-400",
+                      "bg-gray-400",
+                    ];
                     const pct = form.costHeadBreakup[head];
                     return pct > 0 ? (
                       <div
@@ -830,16 +1032,58 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
 
                 {errors.costHead && (
                   <p className="text-xs text-red-600 mt-2 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3" />{errors.costHead}
+                    <AlertCircle className="w-3 h-3" />
+                    {errors.costHead}
                   </p>
                 )}
 
                 {/* Quick fill buttons */}
                 <div className="flex gap-2 mt-3 flex-wrap">
                   {[
-                    { label: "Set Ops 100%", fn: () => setForm((p) => ({ ...p, costHeadBreakup: { ops: 100, temp: 0, recruitment: 0, projects: 0, others: 0 } })) },
-                    { label: "Split equally", fn: () => { const each = Math.floor(100 / 5); setForm((p) => ({ ...p, costHeadBreakup: { ops: each, temp: each, recruitment: each, projects: each, others: 100 - each * 4 } })); } },
-                    { label: "Reset", fn: () => setForm((p) => ({ ...p, costHeadBreakup: { ops: 0, temp: 0, recruitment: 0, projects: 0, others: 0 } })) },
+                    {
+                      label: "Set Ops 100%",
+                      fn: () =>
+                        setForm((p) => ({
+                          ...p,
+                          costHeadBreakup: {
+                            ops: 100,
+                            temp: 0,
+                            recruitment: 0,
+                            projects: 0,
+                            others: 0,
+                          },
+                        })),
+                    },
+                    {
+                      label: "Split equally",
+                      fn: () => {
+                        const each = Math.floor(100 / 5);
+                        setForm((p) => ({
+                          ...p,
+                          costHeadBreakup: {
+                            ops: each,
+                            temp: each,
+                            recruitment: each,
+                            projects: each,
+                            others: 100 - each * 4,
+                          },
+                        }));
+                      },
+                    },
+                    {
+                      label: "Reset",
+                      fn: () =>
+                        setForm((p) => ({
+                          ...p,
+                          costHeadBreakup: {
+                            ops: 0,
+                            temp: 0,
+                            recruitment: 0,
+                            projects: 0,
+                            others: 0,
+                          },
+                        })),
+                    },
                   ].map((b) => (
                     <button
                       key={b.label}
@@ -895,7 +1139,9 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
             <section>
               <div className="flex items-center gap-2 mb-3">
                 <div className="w-1 h-5 bg-gray-400 rounded-full" />
-                <h4 className="font-semibold text-gray-800 text-sm uppercase tracking-wider">Remarks</h4>
+                <h4 className="font-semibold text-gray-800 text-sm uppercase tracking-wider">
+                  Remarks
+                </h4>
               </div>
               <textarea
                 value={form.remarks}
@@ -910,8 +1156,10 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
             {form.isBillable && (
               <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3">
                 <p className="text-xs text-indigo-700 font-medium">
-                  ✅ Billable Expense: The transfer amount (₹{form.transferAmount || "0"}) will be{" "}
-                  <strong>added to the invoice outstanding</strong> — the client owes this amount.
+                  ✅ Billable Expense: The transfer amount (₹
+                  {form.transferAmount || "0"}) will be{" "}
+                  <strong>added to the invoice outstanding</strong> — the client
+                  owes this amount.
                 </p>
               </div>
             )}
@@ -933,30 +1181,43 @@ const AddExpenseDetailsModal = ({ isOpen, onClose, onSaved, editData, invoice })
                   <CheckCircle2 className="w-3.5 h-3.5" /> Cost head complete
                 </span>
               ) : (
-                <span className="text-amber-600">⚠ Cost head: {costTotal}% of 100%</span>
+                <span className="text-amber-600">
+                  ⚠ Cost head: {costTotal}% of 100%
+                </span>
               )}
             </div>
             <div className="flex gap-3">
               <button
-                type="button" onClick={onClose}
+                type="button"
+                onClick={onClose}
                 className="px-5 py-2.5 border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-100 transition"
               >
                 Cancel
               </button>
               <button
-                type="button" onClick={handleSubmit}
+                type="button"
+                onClick={handleSubmit}
                 disabled={loading || saved}
                 className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition flex items-center gap-2 min-w-[140px] justify-center
-                  ${saved
-                    ? "bg-emerald-500 text-white"
-                    : "bg-orange-600 hover:bg-orange-700 text-white disabled:opacity-60"}`}
+                  ${
+                    saved
+                      ? "bg-emerald-500 text-white"
+                      : "bg-orange-600 hover:bg-orange-700 text-white disabled:opacity-60"
+                  }`}
               >
                 {loading ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</>
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" /> Saving...
+                  </>
                 ) : saved ? (
-                  <><CheckCircle2 className="w-4 h-4" /> Saved!</>
+                  <>
+                    <CheckCircle2 className="w-4 h-4" /> Saved!
+                  </>
                 ) : (
-                  <><Plus className="w-4 h-4" /> {editData ? "Update" : "Save"} Expense</>
+                  <>
+                    <Plus className="w-4 h-4" /> {editData ? "Update" : "Save"}{" "}
+                    Expense
+                  </>
                 )}
               </button>
             </div>
