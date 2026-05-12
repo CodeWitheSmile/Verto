@@ -90,14 +90,12 @@ const AddInvoiceModal = ({
     setFormData((prev) => ({
       ...prev,
 
-      // ✅ SIMPLE DIRECT VALUES (NO FIND)
       invoiceEntity: selectedInvoice?.entity_name ?? "",
       department: selectedInvoice?.dept_code ?? "",
       client: selectedInvoice?.client_name ?? "",
       ledgerName: selectedInvoice?.ledger_name ?? "",
       payHead: selectedInvoice?.pay_head ?? "",
 
-      // ✅ BANK FIX
       bankName: selectedBank?.bank_name ?? "",
 
       invoiceDate: selectedInvoice?.invoice_date ?? "",
@@ -120,7 +118,6 @@ const AddInvoiceModal = ({
       invoiceValue: selectedInvoice?.invoice_value ?? "",
       receivableRs: selectedInvoice?.receivable_amount ?? "",
 
-      // OS fields
       employeeCount: selectedInvoice?.employee_count ?? "",
       grossValue: selectedInvoice?.gross_value ?? "",
       netInHand: selectedInvoice?.net_in_hand ?? "",
@@ -137,7 +134,6 @@ const AddInvoiceModal = ({
   const [showErrors, setShowErrors] = useState(false);
   const [isManualTds, setIsManualTds] = useState(false);
 
-  // Department options
   const departments = [
     { value: "OS", label: "OS (Operations)" },
     { value: "REC", label: "REC (Recruitment)" },
@@ -158,11 +154,9 @@ const AddInvoiceModal = ({
     fetchBanks();
   }, []);
 
-  // Single handleChange function
   const handleChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
 
-    // 🔥 RESET manual TDS when base fields change
     if (["pay", "vertoFee", "tdsPercent"].includes(field)) {
       setIsManualTds(false);
     }
@@ -172,27 +166,20 @@ const AddInvoiceModal = ({
     }
   };
 
-  // 🔥 AUTO FETCH LEDGER NAME BASED ON CLIENT
-
-  // Auto-calculate GST, Invoice Value, TDS, Verto Fee Post TDS
   useEffect(() => {
     const pay = parseFloat(formData.pay);
     const vertoFee = parseFloat(formData.vertoFee);
     const grossValue = parseFloat(formData.grossValue);
 
-    if (isNaN(pay) || isNaN(vertoFee)) return; // 🚨 STOP if invalid
+    if (isNaN(pay) || isNaN(vertoFee)) return;
     const dept = formData.department;
 
-    // ✅ TOTAL BASE
     const baseAmount = vertoFee + pay + (dept === "OS" ? grossValue : 0);
 
-    // ✅ GST
     const gst = baseAmount * 0.18;
 
-    // ✅ TDS BASE (FIXED)
     const tdsBase = pay + vertoFee + (dept === "OS" ? grossValue : 0);
 
-    // ✅ RATE
     let tdsRate;
 
     if (formData.tdsPercent) {
@@ -201,21 +188,15 @@ const AddInvoiceModal = ({
       tdsRate = dept === "OS" ? 0.02 : 0.1;
     }
 
-    // ✅ INVOICE VALUE
     const invoiceValue = baseAmount + gst;
 
-    // ✅ POST TDS (ONLY PAY)
-    // ✅ TOTAL BASE
     const totalBase = pay + vertoFee + (dept === "OS" ? grossValue : 0);
 
-    // ✅ TDS
     const tds = totalBase * tdsRate;
 
-    // ✅ RECEIVABLE
     const finalTds = isManualTds ? Number(formData.tds) || 0 : tds;
     const receivable = invoiceValue - finalTds;
 
-    // ✅ PROPORTIONAL VERT0 SHARE
     const vertoFeePostTds =
       totalBase > 0 ? vertoFee - finalTds * (vertoFee / totalBase) : 0;
 
@@ -223,13 +204,8 @@ const AddInvoiceModal = ({
       ...prev,
       gst: gst.toFixed(2),
       tds: isManualTds ? formData.tds : tds.toFixed(2),
-
-      // ✅ ROUND APPLIED HERE
       invoiceValue: customRound(invoiceValue),
-
-      // ✅ ROUND APPLIED HERE
       receivableRs: customRound(receivable),
-
       vertoFeePostTds: vertoFeePostTds.toFixed(2),
     }));
   }, [
@@ -243,7 +219,7 @@ const AddInvoiceModal = ({
       isManualTds,
     ],
   ]);
-  // Auto-calculate CTC for OS department
+
   useEffect(() => {
     if (formData.department === "OS") {
       const netInHand = parseFloat(formData.netInHand) || 0;
@@ -266,11 +242,9 @@ const AddInvoiceModal = ({
     formData.department,
   ]);
 
-  // Validate form
   const validateForm = () => {
     const newErrors = {};
 
-    // Common required fields
     if (!formData.invoiceEntity) newErrors.invoiceEntity = "Entity is required";
     if (!formData.department) newErrors.department = "Department is required";
     if (!formData.client.trim()) newErrors.client = "Client is required";
@@ -286,7 +260,6 @@ const AddInvoiceModal = ({
       newErrors.expectedCollectionDate = "Expected collection date is required";
     if (!formData.bankName.trim()) newErrors.bankName = "Bank name is required";
 
-    // OS Department specific validations
     if (formData.department === "OS") {
       if (!formData.employeeCount)
         newErrors.employeeCount = "Employee count is required";
@@ -295,7 +268,6 @@ const AddInvoiceModal = ({
       if (!formData.netInHand) newErrors.netInHand = "Net in hand is required";
     }
 
-    // ✅ GLOBAL MISMATCH LOGIC
     const tolerance = 50;
 
     const vertoFeeNum = Number(formData.vertoFee) || 0;
@@ -333,7 +305,6 @@ const AddInvoiceModal = ({
 
     if (Object.keys(newErrors).length > 0) return false;
 
-    // 🔥 ALSO CHECK MISMATCH HERE
     if (gstMismatch || tdsMismatch || invoiceMismatch) {
       const confirmSave = window.confirm(
         "⚠️ Values mismatch detected.\nDo you still want to continue?"
@@ -343,7 +314,7 @@ const AddInvoiceModal = ({
 
     return true;
   };
-  // 🔥 ADD THIS ABOVE COMPONENT (GLOBAL CALCULATION)
+
   const getMismatchData = (formData) => {
     const tolerance = 50;
 
@@ -387,7 +358,7 @@ const AddInvoiceModal = ({
       expectedInvoice,
     };
   };
-  // 🔥 ADD THIS HERE (after getMismatchData function ends)
+
   const {
     gstMismatch,
     tdsMismatch,
@@ -399,10 +370,8 @@ const AddInvoiceModal = ({
 
   const formatImpactMonth = (val) => {
     if (!val) return null;
-
     const [mm, yy] = val.split("/");
-
-    return `20${yy}-${mm}-01`; // correct format
+    return `20${yy}-${mm}-01`;
   };
 
   useEffect(() => {
@@ -410,7 +379,6 @@ const AddInvoiceModal = ({
 
     const invDate = new Date(formData.invoiceDate);
 
-    // Next month
     const nextMonth = new Date(invDate);
     nextMonth.setMonth(nextMonth.getMonth() + 1);
 
@@ -452,7 +420,6 @@ const AddInvoiceModal = ({
       clientRow = existingClient;
 
       if (!clientRow) {
-        // 🔴 Restrict non-admin
         if (role !== "admin") {
           alert("❌ Only admin can create new client");
           return;
@@ -493,20 +460,15 @@ const AddInvoiceModal = ({
       console.log("CLIENT INPUT:", formData.client);
       console.log("DEPT INPUT:", formData.department);
       console.log("ENTITY INPUT:", formData.invoiceEntity);
-
       console.log("CLIENT ROW:", clientRow);
       console.log("DEPT ROW:", deptRow);
       console.log("ENTITY ROW:", entityRow);
-      console.log("ENTITY:", selectedInvoice?.entity_name);
-      console.log("ENTITY LIST:", entities);
 
-      // 🚨 Validate master data
       if (!clientRow || !deptRow || !entityRow) {
         alert("❌ Invalid master data. Check client/entity/department.");
         return;
       }
 
-      // 🚫 Duplicate check ONLY for NEW invoice
       if (!selectedInvoice) {
         const { data: existing } = await supabase
           .from("invoices")
@@ -520,7 +482,6 @@ const AddInvoiceModal = ({
         }
       }
 
-      // 🚨 Mismatch validation
       if (gstMismatch || tdsMismatch || invoiceMismatch) {
         const confirmSave = window.confirm(
           "⚠️ Values mismatch detected.\nDo you still want to save?"
@@ -536,7 +497,6 @@ const AddInvoiceModal = ({
         return;
       }
 
-      // 📦 Common data
       const payload = {
         invoice_number: formData.invoiceNo,
         client_id: clientRow.id,
@@ -547,15 +507,12 @@ const AddInvoiceModal = ({
         pay_head: formData.payHead,
         bank_id: selectedBank.id,
         pay: Number(formData.pay),
-
         verto_fee: Number(formData.vertoFee),
         gst: Number(formData.gst),
         invoice_value: Number(formData.invoiceValue),
         tds: Number(formData.tds),
         receivable_amount: Number(formData.receivableRs),
         expected_collection_date: formData.expectedCollectionDate,
-
-        // ✅ OS fields
         employee_count: Number(formData.employeeCount) || 0,
         gross_value: Number(formData.grossValue) || 0,
         net_in_hand: Number(formData.netInHand) || 0,
@@ -568,11 +525,8 @@ const AddInvoiceModal = ({
       };
 
       let error;
-
-      // 🔥 ✅ MAIN LOGIC (INSERT vs UPDATE)
       let insertedInvoice = null;
 
-      // 🔥 ✅ MAIN LOGIC (INSERT vs UPDATE)
       if (selectedInvoice) {
         console.log("🔥 UPDATE MODE");
 
@@ -585,8 +539,6 @@ const AddInvoiceModal = ({
       } else {
         console.log("🔥 INSERT MODE");
 
-        // ✅ IMPORTANT
-
         const res = await supabase
           .from("invoices")
           .insert([payload])
@@ -594,16 +546,15 @@ const AddInvoiceModal = ({
           .single();
 
         error = res.error;
+        insertedInvoice = res.data;
 
-        const insertedInvoice = res.data;
-
+        // ✅ LINK ADVANCE PAYMENT — runs only ONCE
         if (formData.refNoPaymentMade && insertedInvoice) {
           console.log(
             "🔥 SEARCHING ADVANCE PAYMENT:",
             formData.refNoPaymentMade
           );
 
-          // ✅ FIND ADVANCE PAYMENT
           const { data: advancePayment, error: advanceError } = await supabase
             .from("advance_payments")
             .select("*")
@@ -616,19 +567,14 @@ const AddInvoiceModal = ({
             console.log(advanceError);
           }
 
-          // ✅ IF FOUND
           if (advancePayment) {
-            // ✅ MOVE TO payments_received
             const { error: moveError } = await supabase
               .from("payments_received")
               .insert([
                 {
                   invoice_id: insertedInvoice.id,
-
                   amount_received: advancePayment.amount,
-
                   payment_date: advancePayment.payment_date,
-
                   payment_ref: advancePayment.payment_ref,
                 },
               ]);
@@ -637,12 +583,10 @@ const AddInvoiceModal = ({
               console.log(moveError);
               alert("❌ Failed to link payment");
             } else {
-              // ✅ MARK ADJUSTED
               await supabase
                 .from("advance_payments")
                 .update({
                   linked_invoice_id: insertedInvoice.id,
-
                   is_adjusted: true,
                 })
                 .eq("id", advancePayment.id);
@@ -655,73 +599,21 @@ const AddInvoiceModal = ({
             }
           }
         }
-
-        // 🔥 AUTO ADJUST ADVANCE PAYMENT
-        if (formData.refNoPaymentMade && insertedInvoice) {
-          console.log("🔥 CHECKING ADVANCE PAYMENT");
-
-          // ✅ FIND ADVANCE PAYMENT
-          const { data: advancePayment } = await supabase
-            .from("advance_payments")
-            .select("*")
-            .eq("payment_ref", formData.refNoPaymentMade)
-            .eq("is_adjusted", false)
-            .maybeSingle();
-
-          console.log("ADVANCE PAYMENT:", advancePayment);
-
-          // ✅ IF FOUND
-          if (advancePayment) {
-            // ✅ MOVE INTO payments_received
-            const { error: moveError } = await supabase
-              .from("payments_received")
-              .insert([
-                {
-                  invoice_id: insertedInvoice.id,
-
-                  amount_received: advancePayment.amount,
-
-                  payment_date: advancePayment.payment_date,
-
-                  payment_ref: advancePayment.payment_ref,
-                },
-              ]);
-
-            if (moveError) {
-              console.log(moveError);
-              throw moveError;
-            }
-
-            // ✅ MARK ADJUSTED
-            await supabase
-              .from("advance_payments")
-              .update({
-                linked_invoice_id: insertedInvoice.id,
-                is_adjusted: true,
-              })
-              .eq("id", advancePayment.id);
-
-            console.log("✅ ADVANCE PAYMENT LINKED");
-          }
-        }
+        // ✅ END OF ADVANCE PAYMENT LINKING — duplicate block removed
       }
 
-      // ❌ Error handling
       if (error) {
         console.error("DB Error:", error);
         alert("❌ Failed: " + error.message);
         return;
       }
 
-      // ✅ Success
       alert(selectedInvoice ? "✅ Invoice updated" : "✅ Invoice created");
 
-      // 🔄 Refresh dashboard
       if (window.refreshClients) {
-        window.refreshClients(); // reload client list globally
+        window.refreshClients();
       }
 
-      // 🔄 Reset + close
       resetForm();
       onClose();
     } catch (err) {
@@ -730,7 +622,6 @@ const AddInvoiceModal = ({
     }
   };
 
-  // Reset form to initial state
   const resetForm = () => {
     setFormData({
       invoiceEntity: "",
@@ -773,13 +664,11 @@ const AddInvoiceModal = ({
     setShowErrors(false);
   };
 
-  // Handle modal close
   const handleClose = () => {
     resetForm();
     onClose();
   };
 
-  // Render error message
   const ErrorMessage = ({ error }) => {
     if (!showErrors || !error) return null;
     return (
@@ -913,11 +802,11 @@ const AddInvoiceModal = ({
                       <ErrorMessage error={errors.client} />
                     </div>
                   </div>
-                  <div>
+
+                  <div className="mt-4">
                     <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
                       Pay Head <span className="text-rose-600">*</span>
                     </label>
-
                     <input
                       type="text"
                       value={formData.payHead || ""}
@@ -929,7 +818,6 @@ const AddInvoiceModal = ({
                       }`}
                       placeholder="Enter Pay Head"
                     />
-
                     <ErrorMessage error={errors.payHead} />
                   </div>
 
@@ -1028,7 +916,7 @@ const AddInvoiceModal = ({
                         type="number"
                         value={formData.pay || ""}
                         onChange={(e) => handleChange("pay", e.target.value)}
-                        className={`w-full bg-white border text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20`}
+                        className="w-full bg-white border text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
                         placeholder="₹ 0"
                       />
                     </div>
@@ -1055,7 +943,6 @@ const AddInvoiceModal = ({
                       <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
                         GST 18%
                       </label>
-
                       <input
                         type="number"
                         value={formData.gst || ""}
@@ -1072,7 +959,7 @@ const AddInvoiceModal = ({
                           ❌ GST mismatch (Expected ₹ {expectedGST.toFixed(2)})
                         </p>
                       )}
-                    </div>{" "}
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-3 gap-4 mt-4">
@@ -1092,7 +979,6 @@ const AddInvoiceModal = ({
                             : "border-gray-300 bg-white"
                         }`}
                       />
-
                       {invoiceMismatch && (
                         <p className="text-red-500 text-xs mt-1">
                           ❌ Invoice mismatch (Expected ₹{" "}
@@ -1125,7 +1011,7 @@ const AddInvoiceModal = ({
                         value={formData.tds || ""}
                         onChange={(e) => {
                           handleChange("tds", e.target.value);
-                          setIsManualTds(true); // 🔥 mark manual override
+                          setIsManualTds(true);
                         }}
                         className={`w-full px-4 py-2.5 rounded-lg font-mono ${
                           tdsMismatch
@@ -1133,7 +1019,6 @@ const AddInvoiceModal = ({
                             : "border-gray-300 bg-white"
                         }`}
                       />
-
                       {tdsMismatch && (
                         <p className="text-red-500 text-xs mt-1">
                           ❌ TDS mismatch (Expected ₹ {expectedTDS.toFixed(2)})
@@ -1245,8 +1130,11 @@ const AddInvoiceModal = ({
                         }
                         rows={2}
                         className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
-                        placeholder="Optional reference"
+                        placeholder="e.g. PI-DD-120526-01"
                       />
+                      <p className="text-xs text-amber-600 mt-1">
+                        Enter advance payment ref to auto-link
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -1338,7 +1226,7 @@ const AddInvoiceModal = ({
                           type="number"
                           value={formData.coPF}
                           onChange={(e) => handleChange("coPF", e.target.value)}
-                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg"
                           placeholder="₹ 0"
                         />
                         <p className="text-xs text-rose-600 mt-1">
@@ -1356,7 +1244,7 @@ const AddInvoiceModal = ({
                           onChange={(e) =>
                             handleChange("coESI", e.target.value)
                           }
-                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg"
                           placeholder="₹ 0"
                         />
                         <p className="text-xs text-rose-600 mt-1">
@@ -1374,7 +1262,7 @@ const AddInvoiceModal = ({
                           onChange={(e) =>
                             handleChange("lwfTax", e.target.value)
                           }
-                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg"
                           placeholder="₹ 0"
                         />
                       </div>
@@ -1389,7 +1277,7 @@ const AddInvoiceModal = ({
                           onChange={(e) =>
                             handleChange("ptTax", e.target.value)
                           }
-                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg"
                           placeholder="₹ 0"
                         />
                       </div>
@@ -1406,7 +1294,7 @@ const AddInvoiceModal = ({
                           onChange={(e) =>
                             handleChange("otherDed", e.target.value)
                           }
-                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg"
                           placeholder="₹ 0"
                         />
                       </div>
@@ -1437,7 +1325,7 @@ const AddInvoiceModal = ({
                           onChange={(e) =>
                             handleChange("monthOfPayout", e.target.value)
                           }
-                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg"
                           placeholder="e.g., Jan 2023"
                         />
                       </div>
@@ -1454,7 +1342,7 @@ const AddInvoiceModal = ({
                           onChange={(e) =>
                             handleChange("statutoryPayoutDate", e.target.value)
                           }
-                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg"
                         />
                         <p className="text-xs text-amber-600 mt-1">
                           Alert Ping
@@ -1471,7 +1359,7 @@ const AddInvoiceModal = ({
                           onChange={(e) =>
                             handleChange("vertoFeePayoutDate", e.target.value)
                           }
-                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg"
                         />
                         <p className="text-xs text-amber-600 mt-1">
                           Alert Ping
@@ -1493,7 +1381,7 @@ const AddInvoiceModal = ({
                               e.target.value
                             )
                           }
-                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg"
                         />
                       </div>
 
@@ -1507,7 +1395,7 @@ const AddInvoiceModal = ({
                           onChange={(e) =>
                             handleChange("expectedOutflowPF", e.target.value)
                           }
-                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg"
                         />
                         <p className="text-xs text-gray-500 mt-1">
                           As per master due date
@@ -1524,7 +1412,7 @@ const AddInvoiceModal = ({
                           onChange={(e) =>
                             handleChange("expectedOutflowESI", e.target.value)
                           }
-                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg"
                         />
                         <p className="text-xs text-gray-500 mt-1">
                           As per master due date
@@ -1541,7 +1429,7 @@ const AddInvoiceModal = ({
                           onChange={(e) =>
                             handleChange("expectedOutflowGST", e.target.value)
                           }
-                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg"
                         />
                         <p className="text-xs text-gray-500 mt-1">
                           As per master due date
@@ -1558,7 +1446,7 @@ const AddInvoiceModal = ({
                           onChange={(e) =>
                             handleChange("expectedOutflowTax", e.target.value)
                           }
-                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                          className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg"
                         />
                         <p className="text-xs text-gray-500 mt-1">
                           As per master due date

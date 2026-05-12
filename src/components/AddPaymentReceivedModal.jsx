@@ -1,18 +1,17 @@
 import React, { useState, useEffect } from "react";
 import supabase from "../lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ArrowRight, AlertCircle } from "lucide-react";
+import { X, ArrowRight, AlertCircle, Copy, CheckCircle } from "lucide-react";
 
 const AddPaymentReceivedModal = ({
   isOpen,
   onClose,
   invoice,
   clients = [],
-  onPaymentSaved, // 🔥 new prop
+  onPaymentSaved,
 }) => {
-  // Local form state
   const [formData, setFormData] = useState({
-    bankId: "", // ✅ ADD THIS
+    bankId: "",
     invoiceAvailable: "Yes",
     invoiceNumber: "",
     amountReceived: "",
@@ -28,11 +27,16 @@ const AddPaymentReceivedModal = ({
     remarks: "",
   });
 
+  // ✅ NEW: ref modal state
+  const [savedRef, setSavedRef] = useState("");
+  const [showRefModal, setShowRefModal] = useState(false);
+  const [copied, setCopied] = useState(false);
+
   React.useEffect(() => {
     if (invoice && isOpen) {
       setFormData((prev) => ({
         ...prev,
-        invoiceNumber: invoice.id, // 🔥 auto fill
+        invoiceNumber: invoice.id,
       }));
     }
   }, [invoice, isOpen]);
@@ -47,12 +51,8 @@ const AddPaymentReceivedModal = ({
       const { data } = await supabase
         .from("bank_master")
         .select("id, bank_name");
-
-      console.log("BANKS:", data); // 🔥 DEBUG
-
       setBanks(data || []);
     };
-
     fetchBanks();
   }, []);
 
@@ -64,7 +64,7 @@ const AddPaymentReceivedModal = ({
       }
 
       const { data, error } = await supabase
-        .from("outstanding_invoice_view") // ✅ USE VIEW (VERY IMPORTANT)
+        .from("outstanding_invoice_view")
         .select("*")
         .eq("invoice_number", formData.invoiceNumber)
         .maybeSingle();
@@ -76,8 +76,6 @@ const AddPaymentReceivedModal = ({
 
       if (data) {
         setInvoiceDetails(data);
-
-        // 🔥 AUTO FILL
         setFormData((prev) => ({
           ...prev,
           client: data.client_name || "",
@@ -93,10 +91,8 @@ const AddPaymentReceivedModal = ({
     fetchInvoiceDetails();
   }, [formData.invoiceNumber]);
 
-  // Single handleChange function
   const handleChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
-    // Clear error for this field when user starts typing
     if (errors[field]) {
       setErrors((prev) => ({ ...prev, [field]: "" }));
     }
@@ -104,29 +100,22 @@ const AddPaymentReceivedModal = ({
 
   // Generate PayIn reference number
   const generatePayInReference = (clientName, date) => {
-    // Extract client code (first 2 letters, uppercase)
     const clientCode = clientName.substring(0, 2).toUpperCase();
-
-    // Format date as DDMMYY
     const dateObj = new Date(date);
     const day = String(dateObj.getDate()).padStart(2, "0");
     const month = String(dateObj.getMonth() + 1).padStart(2, "0");
     const year = String(dateObj.getFullYear()).slice(-2);
     const dateStr = `${day}${month}${year}`;
 
-    // Get sequence number from localStorage
     const storageKey = `payInSeq_${clientCode}_${dateStr}`;
     const currentSeq = parseInt(localStorage.getItem(storageKey) || "0", 10);
     const nextSeq = currentSeq + 1;
     const seqStr = String(nextSeq).padStart(2, "0");
-
-    // Update localStorage
     localStorage.setItem(storageKey, String(nextSeq));
 
     return `PI-${clientCode}-${dateStr}-${seqStr}`;
   };
 
-  // Validate form
   const validateForm = () => {
     const newErrors = {};
     if (!formData.bankId) {
@@ -157,20 +146,16 @@ const AddPaymentReceivedModal = ({
         newErrors.bankId = "Bank is required";
       }
     }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
-  // Handle form submission
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setShowErrors(true);
 
-    if (!validateForm()) {
-      return;
-    }
+    if (!validateForm()) return;
 
-    // Generate PayIn reference for "No" scenario
     let payInReference = "";
     if (formData.invoiceAvailable === "No") {
       payInReference = generatePayInReference(
@@ -179,30 +164,18 @@ const AddPaymentReceivedModal = ({
       );
     }
 
-    // Prepare submission data
-    const submissionData = {
-      ...formData,
-      payInReference:
-        formData.invoiceAvailable === "No" ? payInReference : null,
-      submittedAt: new Date().toISOString(),
-    };
-
     try {
-      // 🔥 CHECK REMAINING AMOUNT
-      // 🔥 CHECK REMAINING ONLY FOR INVOICE PAYMENTS
+      // ✅ CHECK REMAINING ONLY FOR INVOICE PAYMENTS
       if (formData.invoiceAvailable === "Yes") {
         const remaining = Number(invoiceDetails?.outstanding || 0);
-
         const enteredAmount = Number(formData.amountReceived);
-
-        console.log("REMAINING:", remaining);
-        console.log("ENTERED:", enteredAmount);
 
         if (enteredAmount > remaining) {
           alert(`❌ Payment cannot exceed remaining amount (₹ ${remaining})`);
           return;
         }
       }
+
       const generatedRef =
         formData.invoiceAvailable === "No"
           ? payInReference
@@ -212,57 +185,50 @@ const AddPaymentReceivedModal = ({
               .toString()
               .padStart(2, "0")}`;
 
-      if (formData.invoiceAvailable === "No") {
-        // ✅ SAVE ADVANCE PAYMENT
+      let confirmedRef = generatedRef;
 
-        const { error: advanceError } = await supabase
+      if (formData.invoiceAvailable === "No") {
+        // ✅ SAVE ADVANCE PAYMENT — fetch back the saved ref from DB
+        const { data: advanceData, error: advanceError } = await supabase
           .from("advance_payments")
           .insert([
             {
               payment_ref: payInReference,
-
               client_name: formData.client,
-
               ledger_name: formData.ledgerName,
-
               entity_name: formData.entity,
-
               department_name: formData.department,
-
               amount: Number(formData.amountReceived),
-
               payment_date: formData.dateReceived,
-
               bank_id: formData.bankId,
-
               remarks: formData.remarks || "Advance Payment",
             },
-          ]);
+          ])
+          .select("payment_ref")  // ✅ fetch what DB actually stored
+          .single();
 
         if (advanceError) throw advanceError;
 
-      } else {
-        // ✅ NORMAL PAYMENT
+        // ✅ Use DB-confirmed ref (not locally generated)
+        confirmedRef = advanceData?.payment_ref || payInReference;
 
+      } else {
+        // ✅ NORMAL INVOICE PAYMENT
         const { error: paymentError } = await supabase
           .from("payments_received")
           .insert([
             {
               invoice_id: invoiceDetails?.id || invoiceDetails?.dbId,
-
               amount_received: Number(formData.amountReceived),
-
               payment_date: formData.dateReceived,
-
               payment_ref: generatedRef,
             },
           ]);
-          
+
+        if (paymentError) throw paymentError;
       }
 
-      // 🔥🔥 ADD THIS BLOCK HERE (IMPORTANT)
-
-      // 🔥 BANK ENTRY
+      // ✅ BANK ENTRY (runs for both Yes and No)
       const { error: bankError } = await supabase.from("bank_entries").insert([
         {
           bank_id: formData.bankId,
@@ -272,40 +238,30 @@ const AddPaymentReceivedModal = ({
           type: "credit",
           remarks: formData.bankDetails || "Payment Received",
           reference_no: "BNK-" + Date.now(),
-
-          // 🔥 ADD THIS (VERY IMPORTANT)
           invoice_id: invoiceDetails?.id || null,
         },
       ]);
 
       if (bankError) throw bankError;
 
-      alert("✅ Payment saved successfully");
-
-      // 🔥 STEP 10.3 — TRIGGER DASHBOARD REFRESH
+      // ✅ TRIGGER DASHBOARD REFRESH
       if (onPaymentSaved) onPaymentSaved();
 
-      resetForm();
-      onClose();
+      // ✅ SHOW REF MODAL instead of alert
+      setSavedRef(confirmedRef);
+      setShowRefModal(true);
+
+      // NOTE: resetForm() and onClose() are now called from the ref modal's close button
+
     } catch (err) {
       console.error("FULL ERROR:", err);
       alert("❌ " + err.message);
     }
-
-    // TODO: Send to backend API when available
-    // await api.savePaymentReceived(submissionData);
-
-    // Reset form and close modal
-    resetForm();
-    onClose();
   };
-
-  // Reset form to initial state
 
   const resetForm = () => {
     setFormData({
       bankId: "",
-
       invoiceAvailable: "Yes",
       invoiceNumber: "",
       amountReceived: "",
@@ -319,18 +275,31 @@ const AddPaymentReceivedModal = ({
       payoutMonth: "",
       remarks: "",
     });
-
     setErrors({});
     setShowErrors(false);
   };
 
-  // Handle modal close
   const handleClose = () => {
     resetForm();
     onClose();
   };
 
-  // Render error message
+  // ✅ Called when user closes the ref modal
+  const handleRefModalClose = () => {
+    setShowRefModal(false);
+    setSavedRef("");
+    setCopied(false);
+    resetForm();
+    onClose();
+  };
+
+  const handleCopy = () => {
+    navigator.clipboard?.writeText(savedRef).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
   const ErrorMessage = ({ error }) => {
     if (!showErrors || !error) return null;
     return (
@@ -422,13 +391,11 @@ const AddPaymentReceivedModal = ({
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
-                            Invoice Number{" "}
-                            <span className="text-rose-600">*</span>
+                            Invoice Number <span className="text-rose-600">*</span>
                           </label>
                           <input
                             type="text"
                             value={formData.invoiceNumber}
-                            readOnly={false}
                             onChange={(e) =>
                               handleChange("invoiceNumber", e.target.value)
                             }
@@ -441,15 +408,9 @@ const AddPaymentReceivedModal = ({
                           />
                           {invoiceDetails && (
                             <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-xs">
-                              <p>
-                                <b>Client:</b> {invoiceDetails.client_name}
-                              </p>
-                              <p>
-                                <b>Ledger:</b> {invoiceDetails.ledger_name}
-                              </p>
-                              <p>
-                                <b>Entity:</b> {invoiceDetails.entity_name}
-                              </p>
+                              <p><b>Client:</b> {invoiceDetails.client_name}</p>
+                              <p><b>Ledger:</b> {invoiceDetails.ledger_name}</p>
+                              <p><b>Entity:</b> {invoiceDetails.entity_name}</p>
                             </div>
                           )}
                           <ErrorMessage error={errors.invoiceNumber} />
@@ -466,18 +427,17 @@ const AddPaymentReceivedModal = ({
                             className="w-full border px-3 py-2 rounded"
                           >
                             <option value="">Select Bank</option>
-
                             {banks.map((b) => (
                               <option key={b.id} value={b.id}>
                                 {b.bank_name}
                               </option>
                             ))}
                           </select>
+                          <ErrorMessage error={errors.bankId} />
                         </div>
                         <div>
                           <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
-                            Amount Received{" "}
-                            <span className="text-rose-600">*</span>
+                            Amount Received <span className="text-rose-600">*</span>
                           </label>
                           <input
                             type="number"
@@ -498,8 +458,7 @@ const AddPaymentReceivedModal = ({
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
-                            Date Received{" "}
-                            <span className="text-rose-600">*</span>
+                            Date Received <span className="text-rose-600">*</span>
                           </label>
                           <input
                             type="date"
@@ -517,8 +476,7 @@ const AddPaymentReceivedModal = ({
                         </div>
                         <div>
                           <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
-                            Bank Details{" "}
-                            <span className="text-rose-600">*</span>
+                            Bank Details <span className="text-rose-600">*</span>
                           </label>
                           <input
                             type="text"
@@ -564,12 +522,8 @@ const AddPaymentReceivedModal = ({
                             }`}
                           >
                             <option value="">Select Entity</option>
-                            <option value="Verto India Pvt Ltd">
-                              Verto India Pvt Ltd
-                            </option>
-                            <option value="Verto Global LLC">
-                              Verto Global LLC
-                            </option>
+                            <option value="Verto India Pvt Ltd">Verto India Pvt Ltd</option>
+                            <option value="Verto Global LLC">Verto Global LLC</option>
                             <option value="Verto UK Ltd">Verto UK Ltd</option>
                           </select>
                           <ErrorMessage error={errors.entity} />
@@ -647,8 +601,7 @@ const AddPaymentReceivedModal = ({
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
-                          Payment Description{" "}
-                          <span className="text-rose-600">*</span>
+                          Payment Description <span className="text-rose-600">*</span>
                         </label>
                         <textarea
                           value={formData.paymentDescription}
@@ -668,8 +621,7 @@ const AddPaymentReceivedModal = ({
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
-                            Amount Received{" "}
-                            <span className="text-rose-600">*</span>
+                            Amount Received <span className="text-rose-600">*</span>
                           </label>
                           <input
                             type="number"
@@ -688,8 +640,7 @@ const AddPaymentReceivedModal = ({
                         </div>
                         <div>
                           <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
-                            Payout for the Month{" "}
-                            <span className="text-rose-600">*</span>
+                            Payout for the Month <span className="text-rose-600">*</span>
                           </label>
                           <input
                             type="text"
@@ -710,8 +661,7 @@ const AddPaymentReceivedModal = ({
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
-                            Date Received{" "}
-                            <span className="text-rose-600">*</span>
+                            Date Received <span className="text-rose-600">*</span>
                           </label>
                           <input
                             type="date"
@@ -731,7 +681,6 @@ const AddPaymentReceivedModal = ({
                           <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
                             Select Bank <span className="text-rose-600">*</span>
                           </label>
-
                           <select
                             value={formData.bankId || ""}
                             onChange={(e) =>
@@ -744,14 +693,12 @@ const AddPaymentReceivedModal = ({
                             }`}
                           >
                             <option value="">Select Bank</option>
-
                             {banks.map((b) => (
                               <option key={b.id} value={b.id}>
                                 {b.bank_name}
                               </option>
                             ))}
                           </select>
-
                           <ErrorMessage error={errors.bankId} />
                         </div>
                       </div>
@@ -797,6 +744,87 @@ const AddPaymentReceivedModal = ({
                 </div>
               </form>
             </div>
+          </motion.div>
+        </motion.div>
+      )}
+
+      {/* ✅ PAYMENT REF MODAL — shows after successful save */}
+      {showRefModal && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+        >
+          <motion.div
+            initial={{ scale: 0.85, y: 30 }}
+            animate={{ scale: 1, y: 0 }}
+            exit={{ scale: 0.85, y: 30 }}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 text-center"
+          >
+            {/* Icon */}
+            <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-5">
+              <CheckCircle className="w-9 h-9 text-emerald-600" />
+            </div>
+
+            <h3 className="text-xl font-bold text-gray-900 mb-1">
+              Payment Saved!
+            </h3>
+            <p className="text-sm text-gray-500 mb-6">
+              {savedRef.startsWith("PI-")
+                ? "Use this reference when creating the invoice later."
+                : "Payment has been recorded successfully."}
+            </p>
+
+            {/* Reference Box */}
+            {savedRef && (
+              <div className="bg-emerald-50 border-2 border-dashed border-emerald-400 rounded-xl px-5 py-4 mb-5">
+                <p className="text-xs text-emerald-600 uppercase tracking-widest font-semibold mb-2">
+                  {savedRef.startsWith("PI-")
+                    ? "Advance Payment Reference"
+                    : "Payment Reference"}
+                </p>
+                <p className="text-2xl font-mono font-bold text-emerald-700 tracking-wider break-all">
+                  {savedRef}
+                </p>
+              </div>
+            )}
+
+            {savedRef.startsWith("PI-") && (
+              <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-5">
+                📌 Note this reference. Enter it in the <b>Ref No Payment Made</b> field when creating the invoice.
+              </p>
+            )}
+
+            {/* Copy Button */}
+            <button
+              onClick={handleCopy}
+              className={`w-full mb-3 px-4 py-2.5 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                copied
+                  ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
+                  : "bg-emerald-600 hover:bg-emerald-700 text-white"
+              }`}
+            >
+              {copied ? (
+                <>
+                  <CheckCircle className="w-4 h-4" />
+                  Copied!
+                </>
+              ) : (
+                <>
+                  <Copy className="w-4 h-4" />
+                  Copy Reference
+                </>
+              )}
+            </button>
+
+            {/* Close Button */}
+            <button
+              onClick={handleRefModalClose}
+              className="w-full px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+            >
+              Close
+            </button>
           </motion.div>
         </motion.div>
       )}
