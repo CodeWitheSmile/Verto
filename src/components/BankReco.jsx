@@ -119,7 +119,7 @@ const BankTransferModal = ({
       } else {
         const referenceNo = "TRF-" + Date.now();
 
-        const { data: transferData, error } = await supabase
+        const { error } = await supabase
           .from("bank_transfers")
           .insert([
             {
@@ -130,47 +130,9 @@ const BankTransferModal = ({
               remarks: form.remarks,
               reference_no: referenceNo,
             },
-          ])
-          .select()
-          .single();
+          ]);
 
         if (error) throw error;
-
-        // ✅ SENDER DEBIT
-        const { error: senderError } = await supabase
-          .from("bank_entries")
-          .insert([
-            {
-              bank_id: form.sender_bank_id,
-              date: form.transfer_date,
-              amount: parseFloat(form.amount),
-              type: "debit",
-              entity: "Bank Transfer",
-              remarks: `Transfer to another bank`,
-              entry_type: "bank_transfer",
-              reference_no: referenceNo,
-            },
-          ]);
-
-        if (senderError) throw senderError;
-
-        // ✅ RECEIVER CREDIT
-        const { error: receiverError } = await supabase
-          .from("bank_entries")
-          .insert([
-            {
-              bank_id: form.receiver_bank_id,
-              date: form.transfer_date,
-              amount: parseFloat(form.amount),
-              type: "credit",
-              entity: "Bank Transfer",
-              remarks: `Transfer received`,
-              entry_type: "bank_transfer",
-              reference_no: referenceNo,
-            },
-          ]);
-
-        if (receiverError) throw receiverError;
       }
       onSaved?.();
       onClose();
@@ -543,7 +505,19 @@ const BankReco = () => {
       })) || [];
 
     if (!error) {
-      setEntries([...(data || []), ...paymentRows, ...expenseRows]);
+      const cleanedBankEntries = (data || []).filter(
+        (entry, index, self) =>
+          index ===
+          self.findIndex(
+            (e) =>
+              e.reference_no === entry.reference_no &&
+              e.bank_id === entry.bank_id &&
+              e.type === entry.type &&
+              e.amount === entry.amount
+          )
+      );
+
+      setEntries([...cleanedBankEntries, ...paymentRows, ...expenseRows]);
     }
   };
 
@@ -552,7 +526,15 @@ const BankReco = () => {
       .from("software_entries")
       .select("*")
       .order("date", { ascending: false });
-    if (!error) setSoftwareEntries(data);
+
+    if (!error) {
+      // ✅ REMOVE TRANSFER EFFECT
+      const cleanedSoftware = (data || []).filter(
+        (e) => e.entry_type !== "bank_transfer"
+      );
+
+      setSoftwareEntries(cleanedSoftware);
+    }
   };
   const fetchOutstandingInvoices = async () => {
     const { data, error } = await supabase
@@ -666,9 +648,22 @@ const BankReco = () => {
       } else {
         grouped[key].asPerBankTotalBal += Math.abs(amt);
       }
+      // ✅ PREVENT DUPLICATE TRANSFER
+      const alreadyExists = grouped[key].manualEntries.find(
+        (e) =>
+          e.reference_no === entry.reference_no &&
+          e.amount ===
+            (entry.type === "debit"
+              ? -Math.abs(entry.amount)
+              : Math.abs(entry.amount))
+      );
+
+      if (alreadyExists) return;
+      
 
       grouped[key].manualEntries.push({
         date: entry.date,
+        reference_no: entry.reference_no,
 
         entity: entry.entity || "Verto India Pvt Ltd",
 
@@ -690,7 +685,10 @@ const BankReco = () => {
             : entry.entry_type === "interest_penalty"
             ? "Interest / Penalty"
             : entry.entry_type === "bank_transfer"
-            ? "Bank Transfer"
+            ? entry.remarks ||
+              (entry.type === "debit"
+                ? "Transfer to another bank"
+                : "Transfer received")
             : entry.entry_type === "bank_balance_adjustment"
             ? "Bank Balance Adjustment"
             : entry.entry_type === "manual_adjustment"
@@ -740,33 +738,29 @@ const BankReco = () => {
 
       // ✅ ACTUAL CREDIT ENTRIES
 
-      const actualCredits = entries
-        .filter((e) => {
-          if (!e.bank_id) return false;
+      // ✅ CURRENT MONTH ONLY
+      const currentMonthEntries = entries.filter((e) => {
+        if (!e.bank_id) return false;
 
-          return (
-            String(e.bank_id) === String(bankId) &&
-            String(e.type).toLowerCase() === "credit" &&
-            e.date <= today &&
-            e.entry_type !== "bank_transfer"
-          );
-        })
+        const entryMonth = new Date(e.date).toISOString().slice(0, 7);
+
+        return (
+          String(e.bank_id) === String(bankId) &&
+          entryMonth === row.month &&
+          e.entry_type !== "bank_transfer"
+        );
+      });
+
+      // ✅ CREDITS
+      const actualCredits = currentMonthEntries
+        .filter((e) => String(e.type).toLowerCase() === "credit")
         .reduce((sum, e) => {
           return sum + Math.abs(Number(e.amount || 0));
         }, 0);
 
-      // ✅ ACTUAL DEBIT ENTRIES
-      const actualDebits = entries
-        .filter((e) => {
-          if (!e.bank_id) return false;
-
-          return (
-            String(e.bank_id) === String(bankId) &&
-            String(e.type).toLowerCase() === "debit" &&
-            e.date <= today &&
-            e.entry_type !== "bank_transfer"
-          );
-        })
+      // ✅ DEBITS
+      const actualDebits = currentMonthEntries
+        .filter((e) => String(e.type).toLowerCase() === "debit")
         .reduce((sum, e) => {
           return sum + Math.abs(Number(e.amount || 0));
         }, 0);
