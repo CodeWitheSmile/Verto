@@ -28,7 +28,14 @@ import Button from "./ui/button";
 import Badge from "./ui/Badge";
 
 // ─── BANK TRANSFER MODAL ───────────────────────────────────────────────────────
-const BankTransferModal = ({ isOpen, onClose, banks, onSaved, editData }) => {
+const BankTransferModal = ({
+  isOpen,
+  onClose,
+  banks,
+  onSaved,
+  editData,
+  entries,
+}) => {
   const [form, setForm] = useState({
     transfer_date: new Date().toISOString().split("T")[0],
     amount: "",
@@ -76,6 +83,24 @@ const BankTransferModal = ({ isOpen, onClose, banks, onSaved, editData }) => {
       alert("Amount must be greater than 0");
       return;
     }
+    const senderBankRows = entries.filter(
+      (e) => e.bank_id === form.sender_bank_id
+    );
+
+    const currentBalance = senderBankRows.reduce((sum, e) => {
+      const amt = Number(e.amount || 0);
+
+      return e.type === "debit" ? sum - amt : sum + amt;
+    }, 0);
+
+    if (parseFloat(form.amount) > currentBalance) {
+      alert(
+        `Insufficient Balance. Available: ₹${currentBalance.toLocaleString(
+          "en-IN"
+        )}`
+      );
+      return;
+    }
 
     setLoading(true);
     try {
@@ -92,17 +117,60 @@ const BankTransferModal = ({ isOpen, onClose, banks, onSaved, editData }) => {
           .eq("id", editData.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("bank_transfers").insert([
-          {
-            transfer_date: form.transfer_date,
-            amount: parseFloat(form.amount),
-            sender_bank_id: form.sender_bank_id,
-            receiver_bank_id: form.receiver_bank_id,
-            remarks: form.remarks,
-            reference_no: "TRF-" + Date.now(),
-          },
-        ]);
+        const referenceNo = "TRF-" + Date.now();
+
+        const { data: transferData, error } = await supabase
+          .from("bank_transfers")
+          .insert([
+            {
+              transfer_date: form.transfer_date,
+              amount: parseFloat(form.amount),
+              sender_bank_id: form.sender_bank_id,
+              receiver_bank_id: form.receiver_bank_id,
+              remarks: form.remarks,
+              reference_no: referenceNo,
+            },
+          ])
+          .select()
+          .single();
+
         if (error) throw error;
+
+        // ✅ SENDER DEBIT
+        const { error: senderError } = await supabase
+          .from("bank_entries")
+          .insert([
+            {
+              bank_id: form.sender_bank_id,
+              date: form.transfer_date,
+              amount: parseFloat(form.amount),
+              type: "debit",
+              entity: "Bank Transfer",
+              remarks: `Transfer to another bank`,
+              entry_type: "bank_transfer",
+              reference_no: referenceNo,
+            },
+          ]);
+
+        if (senderError) throw senderError;
+
+        // ✅ RECEIVER CREDIT
+        const { error: receiverError } = await supabase
+          .from("bank_entries")
+          .insert([
+            {
+              bank_id: form.receiver_bank_id,
+              date: form.transfer_date,
+              amount: parseFloat(form.amount),
+              type: "credit",
+              entity: "Bank Transfer",
+              remarks: `Transfer received`,
+              entry_type: "bank_transfer",
+              reference_no: referenceNo,
+            },
+          ]);
+
+        if (receiverError) throw receiverError;
       }
       onSaved?.();
       onClose();
@@ -454,7 +522,7 @@ const BankReco = () => {
         ...p,
         entry_type: "payment_made",
         type: "debit",
-        amount: -Math.abs(Number(p.amount)),
+        amount: Math.abs(Number(p.amount)),
         date: p.payment_date,
         bank_master: null,
       })) || [];
@@ -464,7 +532,7 @@ const BankReco = () => {
         ...e,
         entry_type: "expense",
         type: "debit",
-        amount: -Math.abs(Number(e.amount)),
+        amount: Math.abs(Number(e.amount)),
         date: e.payment_date,
         bank_master: null,
       })) || [];
@@ -548,17 +616,12 @@ const BankReco = () => {
         };
       }
 
-      const amt = Math.abs(Number(entry.amount || 0));
+      const amt = Number(entry.amount || 0);
 
-      if (
-        entry.type === "debit" ||
-        entry.entry_type === "payment_made" ||
-        entry.entry_type === "expense" ||
-        entry.entry_type === "statutory_payment"
-      ) {
-        grouped[key].asPerBankTotalBal -= amt;
+      if (String(entry.type).toLowerCase() === "debit") {
+        grouped[key].asPerBankTotalBal -= Math.abs(amt);
       } else {
-        grouped[key].asPerBankTotalBal += amt;
+        grouped[key].asPerBankTotalBal += Math.abs(amt);
       }
 
       grouped[key].manualEntries.push({
@@ -574,9 +637,9 @@ const BankReco = () => {
             : entry.entry_type === "payment_made"
             ? "Payment Made"
             : entry.entry_type === "expense"
-            
             ? "Expense"
-            : entry.entry_type === "statutory_payment" ? "Statutory Payment"
+            : entry.entry_type === "statutory_payment"
+            ? "Statutory Payment"
             : "Other",
         amount:
           entry.type === "debit"
@@ -586,22 +649,64 @@ const BankReco = () => {
       });
     });
 
-    const finalData = Object.values(grouped).map((row) => {
-      const swTotal = softwareEntries
-        .filter((s) => {
-          const swMonth = new Date(s.date).toISOString().slice(0, 7);
-          return swMonth === row.month && s.bank_id === row.bank_id;
-        })
-        .reduce((sum, s) => sum + Number(s.amount), 0);
+    const sortedRows = Object.values(grouped).sort(
+      (a, b) => new Date(a.month) - new Date(b.month)
+    );
 
-      row.asPerSwTotalBal = swTotal;
+    const runningBankBalances = {};
+    const runningSoftwareBalances = {};
+
+    const finalData = sortedRows.map((row) => {
+      const bankId = row.bank_id;
+
+      // ✅ Previous closing balance
+      const previousBankBalance = runningBankBalances[bankId] || 0;
+      const previousSoftwareBalance = runningSoftwareBalances[bankId] || 0;
+
+      // ✅ Current month software movement
+      const currentSoftwareMovement = entries
+        .filter((s) => {
+          if (!s.bank_id) return false;
+
+          const swMonth = new Date(s.date).toISOString().slice(0, 7);
+
+          return (
+            swMonth === row.month &&
+            s.bank_id === bankId &&
+            s.entry_type !== "manual_bank_entry" &&
+            s.entry_type !== "opening_balance"
+          );
+        })
+        .reduce((sum, s) => {
+          const amt = Number(s.amount || 0);
+
+          return String(s.type).toLowerCase() === "debit"
+            ? sum - Math.abs(amt)
+            : sum + Math.abs(amt);
+        }, 0);
+      // ✅ Current month bank movement
+      const currentBankMovement = row.asPerBankTotalBal;
+
+      // ✅ Running closing balance
+      row.asPerBankTotalBal = previousBankBalance + currentBankMovement;
+
+      row.asPerSwTotalBal = previousSoftwareBalance + currentSoftwareMovement;
+
+      // ✅ Save running balance for next month
+      runningBankBalances[bankId] = row.asPerBankTotalBal;
+
+      runningSoftwareBalances[bankId] = row.asPerSwTotalBal;
+
       row.difference = row.asPerBankTotalBal - row.asPerSwTotalBal;
+
       row.remainingBalance = Math.abs(row.difference);
+
       row.status = Math.abs(row.difference) < 50000 ? "reconciled" : "pending";
+
       return row;
     });
 
-    setBankData(finalData);
+    setBankData(finalData.reverse());
   };
 
   // ─── EFFECTS ──────────────────────────────────────────────────────────────
@@ -765,7 +870,12 @@ const BankReco = () => {
         date: newEntry.dateOfBankBal,
         remarks: newEntry.remarks || "",
         entry_type: newEntry.entry_type || "other",
-        type: newEntry.entry_type === "payment_received" ? "credit" : "debit",
+        type:
+          newEntry.entry_type === "payment_received" ||
+          newEntry.entry_type === "bank_credit" ||
+          newEntry.entry_type === "transfer_in"
+            ? "credit"
+            : "debit",
         reference_no: "BNK-" + Date.now(),
       },
     ]);
@@ -814,8 +924,14 @@ const BankReco = () => {
         }}
         banks={banks}
         editData={editTransfer}
-        onSaved={() => {
-          fetchTransfers();
+        entries={entries}
+        onSaved={async () => {
+          await fetchTransfers();
+          await fetchEntries();
+          await fetchSoftwareEntries();
+
+          buildBankRecoData();
+
           setEditTransfer(null);
         }}
       />
@@ -1432,13 +1548,28 @@ const BankReco = () => {
                             Total Bank Balance
                           </span>
                           <span className="font-mono font-medium text-blue-600">
-                            {formatCurrency(
-                              bankData.reduce(
-                                (sum, row) =>
-                                  sum + (row.asPerBankTotalBal || 0),
-                                0
-                              )
-                            )}
+                            {(() => {
+                              const latestBalances = {};
+
+                              bankData.forEach((row) => {
+                                const existing = latestBalances[row.bank_id];
+
+                                if (
+                                  !existing ||
+                                  new Date(row.date) > new Date(existing.date)
+                                ) {
+                                  latestBalances[row.bank_id] = row;
+                                }
+                              });
+
+                              return formatCurrency(
+                                Object.values(latestBalances).reduce(
+                                  (sum, row) =>
+                                    sum + Number(row.asPerBankTotalBal || 0),
+                                  0
+                                )
+                              );
+                            })()}
                           </span>
                         </div>
                       </div>
