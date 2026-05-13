@@ -1,671 +1,540 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import supabase from "../lib/supabaseClient";
-import ViewPaymentModal from "./Viewpaymentmodal.jsx";
+import * as XLSX from "xlsx";
 import {
   X,
-  ArrowRight,
-  CreditCard,
-  Calendar,
-  FileText,
+  Download,
+  Eye,
   Search,
+  Calendar,
+  Building2,
+  FileText,
+  CreditCard,
   CheckCircle,
   XCircle,
-  Building2,
-  Tag,
-  Layers,
-  AlertTriangle,
-  Info,
+  TrendingDown,
+  RefreshCw,
   ChevronDown,
-  Eye,
+  Filter,
+  AlertCircle,
 } from "lucide-react";
 
 /* ─────────────────────────────────────────────
-   Tiny helpers
+   Helpers
 ───────────────────────────────────────────── */
 const fmt = (v) =>
   `₹ ${Number(v || 0).toLocaleString("en-IN", { minimumFractionDigits: 0 })}`;
 
-const InputWrapper = ({ icon: Icon, children }) => (
-  <div className="relative">
-    {Icon && (
-      <Icon
-        size={14}
-        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-      />
-    )}
-    <div className={Icon ? "pl-9" : ""}>{children}</div>
-  </div>
-);
+const fmtDate = (d) =>
+  d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
-const Label = ({ children, required }) => (
-  <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">
-    {children}
-    {required && <span className="text-rose-500 ml-0.5">*</span>}
-  </label>
-);
+const TYPE_COLORS = {
+  Invoice:    { bg: "bg-indigo-50",  text: "text-indigo-700",  dot: "bg-indigo-400"  },
+  "Petty Cash": { bg: "bg-amber-50",   text: "text-amber-700",   dot: "bg-amber-400"   },
+  Other:      { bg: "bg-slate-100", text: "text-slate-600",  dot: "bg-slate-400"  },
+};
 
-const inputCls =
-  "w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-400/20 transition-all duration-200";
+const Badge = ({ type }) => {
+  const c = TYPE_COLORS[type] || TYPE_COLORS.Other;
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${c.bg} ${c.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
+      {type}
+    </span>
+  );
+};
 
-const selectCls =
-  "w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-400/20 transition-all duration-200 appearance-none cursor-pointer";
+const BillablePill = ({ v }) =>
+  v ? (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-100 text-violet-700">
+      <CheckCircle size={10} /> Billable
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500">
+      <XCircle size={10} /> Non-Bill
+    </span>
+  );
+
+/* ─────────────────────────────────────────────
+   Excel Export
+───────────────────────────────────────────── */
+const exportToExcel = (rows) => {
+  const wb = XLSX.utils.book_new();
+
+  /* ── Summary sheet ── */
+  const totalAmount   = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const billableSum   = rows.filter((r) => r.is_billable).reduce((s, r) => s + Number(r.amount || 0), 0);
+  const nonBillable   = totalAmount - billableSum;
+  const invoiceCount  = rows.filter((r) => r.payment_type === "Invoice").length;
+  const pettyCash     = rows.filter((r) => r.payment_type === "Petty Cash").length;
+  const otherCount    = rows.filter((r) => r.payment_type === "Other").length;
+
+  const summaryData = [
+    ["PAYMENT MADE — SUMMARY REPORT"],
+    ["Generated On", new Date().toLocaleString("en-IN")],
+    [],
+    ["OVERVIEW"],
+    ["Total Records",      rows.length],
+    ["Total Amount Paid",  totalAmount],
+    ["Billable Amount",    billableSum],
+    ["Non-Billable Amount",nonBillable],
+    [],
+    ["PAYMENT TYPE BREAKDOWN"],
+    ["Invoice Payments",   invoiceCount],
+    ["Petty Cash",         pettyCash],
+    ["Other Payments",     otherCount],
+  ];
+  const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
+
+  /* column widths */
+  summaryWs["!cols"] = [{ wch: 28 }, { wch: 22 }];
+
+  /* styles via cell metadata */
+  const titleCell = summaryWs["A1"];
+  if (titleCell) {
+    titleCell.s = {
+      font:      { bold: true, sz: 16, color: { rgb: "312E81" } },
+      fill:      { fgColor: { rgb: "EEF2FF" } },
+      alignment: { horizontal: "left" },
+    };
+  }
+  ["A4", "A10"].forEach((addr) => {
+    if (summaryWs[addr])
+      summaryWs[addr].s = { font: { bold: true, sz: 11, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "312E81" } } };
+  });
+
+  XLSX.utils.book_append_sheet(wb, summaryWs, "Summary");
+
+  /* ── Detail sheet ── */
+  const headers = [
+    "#",
+    "Payment Date",
+    "Payment Type",
+    "Invoice Number",
+    "Client Name",
+    "Bank",
+    "Amount (₹)",
+    "Billable",
+    "Transfer Amount (₹)",
+    "Remarks",
+  ];
+
+  const detail = rows.map((r, i) => [
+    i + 1,
+    fmtDate(r.payment_date),
+    r.payment_type || "—",
+    r.invoice_number || "—",
+    r.client_name || "—",
+    r.bank_master?.bank_name || "—",
+    Number(r.amount || 0),
+    r.is_billable ? "Yes" : "No",
+    Number(r.transfer_amount || 0),
+    r.remarks || "",
+  ]);
+
+  const detailWs = XLSX.utils.aoa_to_sheet([headers, ...detail]);
+
+  /* header row style */
+  const headerStyle = {
+    font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 10 },
+    fill:      { fgColor: { rgb: "1E1B4B" } },
+    alignment: { horizontal: "center", vertical: "center", wrapText: true },
+    border: {
+      bottom: { style: "medium", color: { rgb: "6366F1" } },
+    },
+  };
+  headers.forEach((_, ci) => {
+    const addr = XLSX.utils.encode_cell({ r: 0, c: ci });
+    if (!detailWs[addr]) detailWs[addr] = { v: headers[ci], t: "s" };
+    detailWs[addr].s = headerStyle;
+  });
+
+  /* data row alternate shading + amount formatting */
+  detail.forEach((row, ri) => {
+    const isAlt = ri % 2 === 0;
+    row.forEach((_, ci) => {
+      const addr = XLSX.utils.encode_cell({ r: ri + 1, c: ci });
+      if (!detailWs[addr]) return;
+      detailWs[addr].s = {
+        fill: { fgColor: { rgb: isAlt ? "F5F3FF" : "FFFFFF" } },
+        alignment: {
+          horizontal: ci === 6 || ci === 8 ? "right" : ci === 0 ? "center" : "left",
+          vertical: "center",
+        },
+        font: {
+          color: { rgb: ci === 6 ? "312E81" : "1E293B" },
+          bold: ci === 6,
+        },
+        border: {
+          bottom: { style: "thin", color: { rgb: "E2E8F0" } },
+        },
+      };
+      /* number format for amount cols */
+      if (ci === 6 || ci === 8) {
+        detailWs[addr].z = '#,##0';
+      }
+    });
+  });
+
+  /* totals row */
+  const totalRow = detail.length + 1;
+  const totalsData = ["", "TOTAL", "", "", "", "", totalAmount, "", billableSum, ""];
+  totalsData.forEach((v, ci) => {
+    const addr = XLSX.utils.encode_cell({ r: totalRow, c: ci });
+    detailWs[addr] = {
+      v,
+      t: typeof v === "number" ? "n" : "s",
+      s: {
+        font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 10 },
+        fill:      { fgColor: { rgb: "312E81" } },
+        alignment: { horizontal: ci === 6 || ci === 8 ? "right" : "left" },
+        border:    { top: { style: "medium", color: { rgb: "6366F1" } } },
+      },
+    };
+    if (ci === 6 || ci === 8) detailWs[addr].z = '#,##0';
+  });
+
+  detailWs["!ref"] = XLSX.utils.encode_range({ r: 0, c: 0 }, { r: totalRow, c: 9 });
+  detailWs["!cols"] = [
+    { wch: 4 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 22 },
+    { wch: 20 }, { wch: 14 }, { wch: 10 }, { wch: 18 }, { wch: 30 },
+  ];
+  detailWs["!rows"] = [{ hpt: 30 }]; // header row height
+
+  XLSX.utils.book_append_sheet(wb, detailWs, "Payment Details");
+
+  XLSX.writeFile(wb, `Payments_Made_${new Date().toISOString().slice(0, 10)}.xlsx`);
+};
 
 /* ─────────────────────────────────────────────
    Main Component
 ───────────────────────────────────────────── */
-const AddPaymentMadeModal = ({ isOpen, onClose, invoice, onSaved }) => {
-  /* form state */
-  const [amount, setAmount]           = useState("");
-  const [date, setDate]               = useState("");
-  const [remarks, setRemarks]         = useState("");
-  const [banks, setBanks]             = useState([]);
-  const [paymentType, setPaymentType] = useState("Invoice");
-  const [bankId, setBankId]           = useState("");
-  const [invoiceNumber, setInvoiceNumber] = useState("");
+const ViewPaymentModal = ({ isOpen, onClose, invoice }) => {
+  const [payments, setPayments]       = useState([]);
   const [loading, setLoading]         = useState(false);
+  const [search, setSearch]           = useState("");
+  const [filterType, setFilterType]   = useState("All");
+  const [filterBill, setFilterBill]   = useState("All");
+  const [exporting, setExporting]     = useState(false);
 
-  /* billable toggle */
-  const [isBillable, setIsBillable] = useState(false);
+  const fetchPayments = useCallback(async () => {
+    setLoading(true);
+    let q = supabase
+      .from("payments_made")
+      .select("*, bank_master(bank_name)")
+      .order("payment_date", { ascending: false });
 
-  /* manual invoice search */
-  const [invoiceSearch, setInvoiceSearch]     = useState("");
-  const [invoiceResults, setInvoiceResults]   = useState([]);
-  const [selectedInvoice, setSelectedInvoice] = useState(null);
-  const [searching, setSearching]             = useState(false);
+    if (invoice?.id)             q = q.eq("invoice_id", invoice.id);
+    else if (invoice?.invoice_number) q = q.eq("invoice_number", invoice.invoice_number);
 
-  /* ── View modal state ── */
-  const [viewOpen, setViewOpen] = useState(false);
-
-  /* ── fetch banks ── */
-  useEffect(() => {
-    supabase
-      .from("bank_master")
-      .select("id, bank_name")
-      .then(({ data }) => setBanks(data || []));
-  }, []);
-
-  /* ── reset on open ── */
-  useEffect(() => {
-    if (!isOpen) return;
-    setAmount("");
-    setDate("");
-    setRemarks("");
+    const { data, error } = await q;
+    if (!error) setPayments(data || []);
     setLoading(false);
-    setIsBillable(false);
-    setInvoiceSearch("");
-    setInvoiceResults([]);
+  }, [invoice]);
 
-    if (invoice) {
-      setInvoiceNumber(invoice.invoice_number || invoice.id || "");
-      setSelectedInvoice(invoice);
-    } else {
-      setInvoiceNumber("");
-      setSelectedInvoice(null);
-    }
-  }, [isOpen, invoice]);
-
-  /* ── invoice search ── */
   useEffect(() => {
-    if (paymentType !== "Invoice" || !invoiceSearch || invoice) return;
-    const t = setTimeout(async () => {
-      setSearching(true);
-      const { data } = await supabase
-        .from("invoices")
-        .select(
-          "id, invoice_number, receivable_amount, client_id, clients_master(client_name)"
-        )
-        .ilike("invoice_number", `%${invoiceSearch}%`)
-        .limit(8);
-      setInvoiceResults(data || []);
-      setSearching(false);
-    }, 300);
-    return () => clearTimeout(t);
-  }, [invoiceSearch, paymentType, invoice]);
+    if (isOpen) {
+      setSearch("");
+      setFilterType("All");
+      setFilterBill("All");
+      fetchPayments();
+    }
+  }, [isOpen, fetchPayments]);
 
   if (!isOpen) return null;
 
-  /* ── resolved values ── */
-  const resolvedInvoiceId     = selectedInvoice?.dbId || selectedInvoice?.id || invoice?.dbId || null;
-  const resolvedInvoiceNumber = invoiceNumber || selectedInvoice?.invoice_number || "";
-  const resolvedEntity        = selectedInvoice?.entity || invoice?.entity || "Pvt Ltd";
-  const resolvedBankId        = bankId || invoice?.bank_id || null;
+  /* ── filtered rows ── */
+  const filtered = payments.filter((p) => {
+    const q = search.toLowerCase();
+    const matchSearch =
+      !q ||
+      (p.invoice_number || "").toLowerCase().includes(q) ||
+      (p.client_name || "").toLowerCase().includes(q) ||
+      (p.remarks || "").toLowerCase().includes(q) ||
+      (p.bank_master?.bank_name || "").toLowerCase().includes(q);
 
-  /* ── save handler ── */
-  const handleSave = async () => {
-    if (!amount || !date) return alert("Amount and Date are required");
-    if (paymentType === "Invoice" && !resolvedInvoiceId)
-      return alert("Please select an invoice");
-    if (!bankId) return alert("Please select a bank");
+    const matchType = filterType === "All" || p.payment_type === filterType;
+    const matchBill =
+      filterBill === "All" ||
+      (filterBill === "Billable" && p.is_billable) ||
+      (filterBill === "Non-Billable" && !p.is_billable);
 
-    setLoading(true);
-    try {
-      const numAmount = Number(amount);
+    return matchSearch && matchType && matchBill;
+  });
 
-      /* 1. payments_made — trg_payment_made_bank trigger auto-creates the bank_entry debit */
-      const { error: payError } = await supabase.from("payments_made").insert([
-        {
-          invoice_id:     paymentType === "Invoice" ? resolvedInvoiceId : null,
-          invoice_number: paymentType === "Invoice" ? resolvedInvoiceNumber : null,
-          payment_type:   paymentType,
-          petty_cash:     paymentType === "Petty Cash",
-          other_payment:  paymentType === "Other",
-          bank_id:        resolvedBankId,
-          amount:         numAmount,
-          payment_date:   date,
-          remarks,
-          is_billable:    isBillable,
-          client_name:    selectedInvoice?.client_name || invoice?.client_name || null,
-          expense_head:   invoice?.pay_head || null,
-          transfer_amount: isBillable ? numAmount : 0,
-        },
-      ]);
-      if (payError) throw payError;
+  const totalShown = filtered.reduce((s, r) => s + Number(r.amount || 0), 0);
 
-      /* 2. If BILLABLE → increase receivable_amount on the invoice */
-      if (isBillable && resolvedInvoiceId) {
-        const { data: invData, error: fetchErr } = await supabase
-          .from("invoices")
-          .select("receivable_amount")
-          .eq("id", resolvedInvoiceId)
-          .single();
-        if (fetchErr) throw fetchErr;
-
-        const newReceivable = Number(invData.receivable_amount || 0) + numAmount;
-
-        const { error: updErr } = await supabase
-          .from("invoices")
-          .update({ receivable_amount: newReceivable })
-          .eq("id", resolvedInvoiceId);
-        if (updErr) throw updErr;
-      }
-
-      alert(
-        isBillable
-          ? "✅ Billable expense saved — outstanding updated!"
-          : "✅ Payment Made recorded successfully"
-      );
-      onSaved?.();
-      onClose();
-    } catch (err) {
-      console.error(err);
-      alert("❌ Error: " + err.message);
-    } finally {
-      setLoading(false);
-    }
+  const handleExport = () => {
+    setExporting(true);
+    setTimeout(() => {
+      exportToExcel(filtered);
+      setExporting(false);
+    }, 100);
   };
 
   /* ────────────────── RENDER ────────────────── */
   return (
-    <>
-      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-[2px]">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-[2px]">
+      <div
+        className="bg-white w-full sm:max-w-3xl rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+        style={{ maxHeight: "96vh" }}
+      >
+        {/* ── HEADER ── */}
         <div
-          className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col"
-          style={{ maxHeight: "96vh" }}
+          className="relative p-6 pb-5 flex-shrink-0"
+          style={{ background: "linear-gradient(135deg, #0f172a 0%, #1e1b4b 55%, #312e81 100%)" }}
         >
-          {/* ── HEADER ── */}
-          <div
-            className="relative p-6 pb-5 flex-shrink-0"
-            style={{
-              background:
-                "linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4c1d95 100%)",
-            }}
-          >
-            {/* decorative blobs */}
-            <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-8 translate-x-8" />
-            <div className="absolute bottom-0 left-12 w-16 h-16 bg-white/5 rounded-full translate-y-6" />
+          <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -translate-y-12 translate-x-12" />
+          <div className="absolute bottom-0 left-16 w-20 h-20 bg-indigo-500/10 rounded-full translate-y-8" />
 
-            <div className="relative flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center">
-                    <CreditCard size={16} className="text-white" />
-                  </div>
-                  <h2 className="text-lg font-bold text-white tracking-tight">
-                    Payment Made
-                  </h2>
+          <div className="relative flex items-start justify-between">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center">
+                  <Eye size={16} className="text-white" />
                 </div>
-                <p className="text-indigo-300 text-xs ml-10">
-                  Record an outgoing payment from bank
-                </p>
+                <h2 className="text-lg font-bold text-white tracking-tight">Payment History</h2>
               </div>
-
-              {/* ── Action buttons: View + Close ── */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setViewOpen(true)}
-                  title="View payment history"
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-all"
-                >
-                  <Eye size={13} />
-                  View
-                </button>
-                <button
-                  onClick={onClose}
-                  className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
-                >
-                  <X size={15} className="text-white/80" />
-                </button>
-              </div>
+              <p className="text-indigo-300 text-xs ml-10">
+                {invoice
+                  ? `Payments for ${invoice.invoice_number || "this invoice"}`
+                  : "All outgoing payments"}
+              </p>
             </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExport}
+                disabled={exporting || filtered.length === 0}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-all disabled:opacity-40"
+              >
+                {exporting ? (
+                  <RefreshCw size={13} className="animate-spin" />
+                ) : (
+                  <Download size={13} />
+                )}
+                Export Excel
+              </button>
+              <button
+                onClick={onClose}
+                className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+              >
+                <X size={15} className="text-white/80" />
+              </button>
+            </div>
+          </div>
 
-            {/* Invoice badge (when passed from parent) */}
-            {invoice && (
-              <div className="relative mt-4 flex items-center gap-3 bg-white/10 border border-white/20 rounded-2xl p-3">
-                <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center flex-shrink-0">
-                  <FileText size={14} className="text-indigo-200" />
+          {/* Stats bar */}
+          <div className="relative mt-4 grid grid-cols-3 gap-2">
+            {[
+              { label: "Records",      value: filtered.length,  icon: FileText   },
+              { label: "Total Paid",   value: fmt(totalShown),  icon: TrendingDown },
+              { label: "Billable",
+                value: filtered.filter((r) => r.is_billable).length + " items",
+                icon: CheckCircle },
+            ].map(({ label, value, icon: Icon }) => (
+              <div
+                key={label}
+                className="bg-white/10 border border-white/15 rounded-2xl px-3 py-2.5 flex items-center gap-2"
+              >
+                <div className="w-6 h-6 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
+                  <Icon size={12} className="text-indigo-300" />
                 </div>
                 <div>
-                  <p className="text-white font-semibold text-sm leading-none">
-                    {invoice.invoice_number || invoice.id}
-                  </p>
-                  {invoice.client_name && (
-                    <p className="text-indigo-300 text-xs mt-0.5">
-                      {invoice.client_name}
-                    </p>
-                  )}
-                </div>
-                {invoice.receivable_amount != null && (
-                  <div className="ml-auto text-right">
-                    <p className="text-[10px] text-indigo-400">Outstanding</p>
-                    <p className="text-white font-bold text-sm">
-                      {fmt(invoice.receivable_amount)}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* ── BODY ── */}
-          <div className="overflow-y-auto flex-1 px-5 py-5 space-y-4">
-
-            {/* ── Payment Type ── */}
-            <div>
-              <Label>Payment Type</Label>
-              <div className="relative">
-                <select
-                  value={paymentType}
-                  onChange={(e) => {
-                    setPaymentType(e.target.value);
-                    setSelectedInvoice(null);
-                    setInvoiceSearch("");
-                    setInvoiceResults([]);
-                    if (e.target.value !== "Invoice") setIsBillable(false);
-                  }}
-                  className={selectCls}
-                >
-                  <option value="Invoice">Invoice Payment</option>
-                  <option value="Petty Cash">Petty Cash</option>
-                  <option value="Other">Other</option>
-                </select>
-                <ChevronDown
-                  size={14}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                />
-              </div>
-            </div>
-
-            {/* ── Invoice Search (no invoice prop) ── */}
-            {paymentType === "Invoice" && !invoice && (
-              <div>
-                <Label required>Search Invoice</Label>
-                {selectedInvoice ? (
-                  <div className="bg-violet-50 border border-violet-200 rounded-2xl p-3 flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-violet-100 flex items-center justify-center flex-shrink-0">
-                      <FileText size={14} className="text-violet-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-slate-800 text-sm truncate">
-                        {selectedInvoice.invoice_number}
-                      </p>
-                      <p className="text-xs text-slate-500 truncate">
-                        {selectedInvoice.clients_master?.client_name || "—"}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setSelectedInvoice(null);
-                        setInvoiceNumber("");
-                        setInvoiceSearch("");
-                      }}
-                      className="text-xs font-semibold text-rose-500 hover:text-rose-700 px-2 py-1 rounded-lg hover:bg-rose-50 transition-colors"
-                    >
-                      Change
-                    </button>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <Search
-                      size={14}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                    />
-                    <input
-                      type="text"
-                      placeholder="Type invoice number to search…"
-                      value={invoiceSearch}
-                      onChange={(e) => setInvoiceSearch(e.target.value)}
-                      className={`${inputCls} pl-9`}
-                    />
-                    {searching && (
-                      <p className="text-xs text-slate-400 mt-1.5 px-1 animate-pulse">
-                        Searching…
-                      </p>
-                    )}
-                    {invoiceResults.length > 0 && (
-                      <div className="absolute z-20 top-full left-0 right-0 bg-white border border-slate-200 rounded-2xl shadow-xl mt-1.5 overflow-hidden">
-                        {invoiceResults.map((inv) => (
-                          <button
-                            key={inv.id}
-                            onClick={() => {
-                              setSelectedInvoice(inv);
-                              setInvoiceNumber(inv.invoice_number);
-                              setInvoiceSearch(inv.invoice_number);
-                              setInvoiceResults([]);
-                            }}
-                            className="w-full text-left px-4 py-3 hover:bg-violet-50 transition-colors text-sm border-b border-slate-100 last:border-0 flex items-center justify-between"
-                          >
-                            <div>
-                              <p className="font-semibold text-slate-800">
-                                {inv.invoice_number}
-                              </p>
-                              <p className="text-xs text-slate-500 mt-0.5">
-                                {inv.clients_master?.client_name || "—"}
-                              </p>
-                            </div>
-                            <span className="text-xs font-semibold text-violet-600 bg-violet-50 px-2 py-0.5 rounded-full">
-                              {fmt(inv.receivable_amount || 0)}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Invoice number readonly (when prop passed) ── */}
-            {paymentType === "Invoice" && invoice && (
-              <div>
-                <Label>Invoice Number</Label>
-                <div className="relative">
-                  <FileText
-                    size={14}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
-                  <input
-                    type="text"
-                    value={resolvedInvoiceNumber}
-                    readOnly
-                    className={`${inputCls} pl-9 bg-slate-100 text-slate-500 cursor-not-allowed`}
-                  />
+                  <p className="text-[9px] text-indigo-400 uppercase tracking-widest font-bold">{label}</p>
+                  <p className="text-white text-xs font-bold leading-none mt-0.5">{value}</p>
                 </div>
               </div>
-            )}
-
-            {/* ─────────────────────────────────────────────
-                BILLABLE TOGGLE (only for Invoice type)
-            ───────────────────────────────────────────── */}
-            {paymentType === "Invoice" && (
-              <div>
-                <Label>Billing Type</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  {/* Non-Billable */}
-                  <button
-                    type="button"
-                    onClick={() => setIsBillable(false)}
-                    className={`relative flex flex-col items-center gap-1.5 p-3 rounded-2xl border-2 transition-all duration-200 ${
-                      !isBillable
-                        ? "border-slate-700 bg-slate-800 shadow-lg shadow-slate-800/20"
-                        : "border-slate-200 bg-slate-50 hover:border-slate-300"
-                    }`}
-                  >
-                    <XCircle
-                      size={20}
-                      className={!isBillable ? "text-slate-300" : "text-slate-400"}
-                    />
-                    <span
-                      className={`text-xs font-bold ${
-                        !isBillable ? "text-white" : "text-slate-500"
-                      }`}
-                    >
-                      Non-Billable
-                    </span>
-                    <span
-                      className={`text-[10px] text-center leading-tight ${
-                        !isBillable ? "text-slate-400" : "text-slate-400"
-                      }`}
-                    >
-                      Internal expense, no client impact
-                    </span>
-                    {!isBillable && (
-                      <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-400" />
-                    )}
-                  </button>
-
-                  {/* Billable */}
-                  <button
-                    type="button"
-                    onClick={() => setIsBillable(true)}
-                    className={`relative flex flex-col items-center gap-1.5 p-3 rounded-2xl border-2 transition-all duration-200 ${
-                      isBillable
-                        ? "border-violet-500 bg-violet-600 shadow-lg shadow-violet-600/30"
-                        : "border-slate-200 bg-slate-50 hover:border-violet-200"
-                    }`}
-                  >
-                    <CheckCircle
-                      size={20}
-                      className={isBillable ? "text-violet-200" : "text-slate-400"}
-                    />
-                    <span
-                      className={`text-xs font-bold ${
-                        isBillable ? "text-white" : "text-slate-500"
-                      }`}
-                    >
-                      Billable
-                    </span>
-                    <span
-                      className={`text-[10px] text-center leading-tight ${
-                        isBillable ? "text-violet-300" : "text-slate-400"
-                      }`}
-                    >
-                      Client owes more — updates outstanding
-                    </span>
-                    {isBillable && (
-                      <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-yellow-400" />
-                    )}
-                  </button>
-                </div>
-
-                {/* Billable impact note */}
-                {isBillable && (
-                  <div className="mt-2 flex items-start gap-2 bg-violet-50 border border-violet-100 rounded-xl p-3">
-                    <AlertTriangle size={14} className="text-violet-500 flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-violet-700 leading-relaxed">
-                      <strong>Billable expense:</strong> The amount you enter will be{" "}
-                      <strong>added to the invoice outstanding</strong>. The client will owe
-                      more. Both your bank and the receivable will reflect this.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Bank ── */}
-            <div>
-              <Label required>Select Bank</Label>
-              <div className="relative">
-                <Building2
-                  size={14}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                />
-                <select
-                  value={bankId}
-                  onChange={(e) => setBankId(e.target.value)}
-                  className={`${selectCls} pl-9`}
-                >
-                  <option value="">Choose bank account…</option>
-                  {banks.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.bank_name}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown
-                  size={14}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                />
-              </div>
-            </div>
-
-            {/* ── Amount + Date (side by side) ── */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label required>Amount (₹)</Label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">
-                    ₹
-                  </span>
-                  <input
-                    type="number"
-                    placeholder="0"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    className={`${inputCls} pl-7`}
-                  />
-                </div>
-              </div>
-              <div>
-                <Label required>Payment Date</Label>
-                <div className="relative">
-                  <Calendar
-                    size={14}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                  />
-                  <input
-                    type="date"
-                    value={date}
-                    onChange={(e) => setDate(e.target.value)}
-                    className={`${inputCls} pl-9`}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Amount preview (only if filled) */}
-            {amount && Number(amount) > 0 && (
-              <div
-                className={`rounded-2xl p-3 flex items-center justify-between ${
-                  isBillable
-                    ? "bg-violet-50 border border-violet-100"
-                    : "bg-emerald-50 border border-emerald-100"
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <Layers
-                    size={14}
-                    className={isBillable ? "text-violet-500" : "text-emerald-500"}
-                  />
-                  <span
-                    className={`text-xs font-semibold ${
-                      isBillable ? "text-violet-700" : "text-emerald-700"
-                    }`}
-                  >
-                    {isBillable ? "Client will owe +" : "Bank debit —"}
-                  </span>
-                </div>
-                <span
-                  className={`text-base font-bold ${
-                    isBillable ? "text-violet-700" : "text-emerald-700"
-                  }`}
-                >
-                  {fmt(amount)}
-                </span>
-              </div>
-            )}
-
-            {/* ── Remarks ── */}
-            <div>
-              <Label>Remarks</Label>
-              <div className="relative">
-                <FileText
-                  size={14}
-                  className="absolute left-3 top-3 text-slate-400 pointer-events-none"
-                />
-                <textarea
-                  placeholder="Optional notes…"
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                  rows={2}
-                  className={`${inputCls} pl-9 resize-none`}
-                />
-              </div>
-            </div>
-
-            {/* ── Info note (non-billable) ── */}
-            {!isBillable && (
-              <div className="flex items-start gap-2 bg-amber-50 border border-amber-100 rounded-xl p-3">
-                <Info size={14} className="text-amber-500 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-700 leading-relaxed">
-                  This is a <strong>non-billable</strong> outgoing payment. It debits your bank
-                  but does <strong>not</strong> affect the invoice outstanding amount. To charge
-                  a client, switch to <strong>Billable</strong>.
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* ── FOOTER ── */}
-          <div className="flex-shrink-0 px-5 pb-6 pt-3 border-t border-slate-100 flex items-center gap-3">
-            <button
-              onClick={onClose}
-              className="flex-1 py-3 rounded-2xl border-2 border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors"
-            >
-              Cancel
-            </button>
-
-            {/* ── View History button in footer ── */}
-            <button
-              onClick={() => setViewOpen(true)}
-              className="flex items-center gap-2 px-4 py-3 rounded-2xl border-2 border-indigo-200 bg-indigo-50 text-indigo-700 text-sm font-semibold hover:bg-indigo-100 transition-colors"
-            >
-              <Eye size={14} />
-              View
-            </button>
-
-            <button
-              onClick={handleSave}
-              disabled={loading}
-              className={`flex-1 py-3 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 transition-all duration-200 disabled:opacity-60 ${
-                isBillable
-                  ? "bg-violet-600 hover:bg-violet-700 text-white shadow-lg shadow-violet-500/30"
-                  : "bg-slate-800 hover:bg-slate-900 text-white shadow-lg shadow-slate-800/20"
-              }`}
-            >
-              {loading ? (
-                <>
-                  <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                  Saving…
-                </>
-              ) : (
-                <>
-                  {isBillable ? "Save & Update Outstanding" : "Save Payment"}
-                  <ArrowRight size={15} />
-                </>
-              )}
-            </button>
+            ))}
           </div>
         </div>
-      </div>
 
-      {/* ── View Payment Modal ── */}
-      <ViewPaymentModal
-        isOpen={viewOpen}
-        onClose={() => setViewOpen(false)}
-        invoice={invoice || selectedInvoice}
-      />
-    </>
+        {/* ── FILTERS ── */}
+        <div className="flex-shrink-0 px-5 pt-4 pb-3 border-b border-slate-100 space-y-3">
+          {/* Search */}
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search invoice, client, bank, remarks…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/20 transition-all"
+            />
+          </div>
+
+          {/* Filter pills */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <Filter size={12} className="text-slate-400" />
+            {["All", "Invoice", "Petty Cash", "Other"].map((t) => (
+              <button
+                key={t}
+                onClick={() => setFilterType(t)}
+                className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
+                  filterType === t
+                    ? "bg-indigo-600 text-white shadow-sm"
+                    : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+            <div className="w-px h-4 bg-slate-200 mx-1" />
+            {["All", "Billable", "Non-Billable"].map((t) => (
+              <button
+                key={t}
+                onClick={() => setFilterBill(t)}
+                className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
+                  filterBill === t
+                    ? "bg-violet-600 text-white shadow-sm"
+                    : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ── TABLE ── */}
+        <div className="overflow-y-auto flex-1">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <div className="w-8 h-8 rounded-full border-2 border-indigo-200 border-t-indigo-600 animate-spin" />
+              <p className="text-sm text-slate-400">Fetching payments…</p>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center">
+                <AlertCircle size={20} className="text-slate-400" />
+              </div>
+              <p className="text-sm text-slate-500 font-medium">No payments found</p>
+              <p className="text-xs text-slate-400">Try adjusting filters or search</p>
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
+                <tr>
+                  {["Date", "Type", "Invoice / Client", "Bank", "Amount", "Billable", "Remarks"].map((h) => (
+                    <th
+                      key={h}
+                      className="text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 px-4 py-3 whitespace-nowrap"
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((p, i) => (
+                  <tr
+                    key={p.id}
+                    className={`border-b border-slate-100 hover:bg-indigo-50/40 transition-colors ${
+                      i % 2 === 0 ? "bg-white" : "bg-slate-50/50"
+                    }`}
+                  >
+                    {/* Date */}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        <Calendar size={12} className="text-slate-300" />
+                        <span className="text-slate-600 text-xs">{fmtDate(p.payment_date)}</span>
+                      </div>
+                    </td>
+
+                    {/* Type */}
+                    <td className="px-4 py-3">
+                      <Badge type={p.payment_type || "Other"} />
+                    </td>
+
+                    {/* Invoice / Client */}
+                    <td className="px-4 py-3 max-w-[160px]">
+                      {p.invoice_number ? (
+                        <div>
+                          <p className="font-semibold text-slate-800 text-xs truncate">{p.invoice_number}</p>
+                          {p.client_name && (
+                            <p className="text-[10px] text-slate-400 truncate">{p.client_name}</p>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 text-xs">—</span>
+                      )}
+                    </td>
+
+                    {/* Bank */}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        <Building2 size={11} className="text-slate-300" />
+                        <span className="text-xs text-slate-600">{p.bank_master?.bank_name || "—"}</span>
+                      </div>
+                    </td>
+
+                    {/* Amount */}
+                    <td className="px-4 py-3 whitespace-nowrap text-right">
+                      <span className="font-bold text-indigo-700 text-sm">{fmt(p.amount)}</span>
+                    </td>
+
+                    {/* Billable */}
+                    <td className="px-4 py-3">
+                      <BillablePill v={p.is_billable} />
+                    </td>
+
+                    {/* Remarks */}
+                    <td className="px-4 py-3 max-w-[160px]">
+                      <span className="text-xs text-slate-500 truncate block" title={p.remarks}>
+                        {p.remarks || <span className="text-slate-300">—</span>}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+
+              {/* Totals footer */}
+              <tfoot className="sticky bottom-0 bg-indigo-900 border-t-2 border-indigo-600">
+                <tr>
+                  <td colSpan={4} className="px-4 py-3">
+                    <span className="text-[11px] font-bold text-indigo-300 uppercase tracking-widest">
+                      Total ({filtered.length} records)
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <span className="font-bold text-white text-base">{fmt(totalShown)}</span>
+                  </td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
+            </table>
+          )}
+        </div>
+
+        {/* ── FOOTER ── */}
+        <div className="flex-shrink-0 px-5 pb-6 pt-3 border-t border-slate-100 flex items-center gap-3">
+          <button
+            onClick={fetchPayments}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors"
+          >
+            <RefreshCw size={13} /> Refresh
+          </button>
+          <button
+            onClick={handleExport}
+            disabled={exporting || filtered.length === 0}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold transition-all disabled:opacity-50 shadow-lg shadow-emerald-600/20"
+          >
+            {exporting ? (
+              <RefreshCw size={13} className="animate-spin" />
+            ) : (
+              <Download size={13} />
+            )}
+            Download Excel
+          </button>
+          <button
+            onClick={onClose}
+            className="ml-auto flex-1 max-w-[120px] py-2.5 rounded-2xl border-2 border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors text-center"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
   );
 };
 
-export default AddPaymentMadeModal;
+export default ViewPaymentModal;

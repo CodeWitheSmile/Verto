@@ -3,7 +3,7 @@ import ReactDOM from "react-dom";
 import supabase from "../lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ArrowRight, AlertCircle, Copy, CheckCircle, Eye } from "lucide-react";
-import ViewPaymentReceivedModal from "./ViewPaymentReceivedModal.jsx";
+import ViewPaymentReceivedModal from "./ViewPaymentReceivedModal.";
 
 const AddPaymentReceivedModal = ({
   isOpen,
