@@ -136,7 +136,7 @@ const AddPaymentMadeModal = ({ isOpen, onClose, invoice, onSaved }) => {
     try {
       const numAmount = Number(amount);
 
-      /* 1. payments_made */
+      /* 1. payments_made — trg_payment_made_bank trigger auto-creates the bank_entry debit */
       const { error: payError } = await supabase.from("payments_made").insert([
         {
           invoice_id:     paymentType === "Invoice" ? resolvedInvoiceId : null,
@@ -155,24 +155,11 @@ const AddPaymentMadeModal = ({ isOpen, onClose, invoice, onSaved }) => {
         },
       ]);
       if (payError) throw payError;
+      // trg_payment_made_bank fires here and inserts the debit bank_entry automatically.
+      // No manual bank_entry or software_entry insert needed.
 
-      /* 3. software_entries */
-      const { error: swError } = await supabase.from("software_entries").insert([
-        {
-          bank_id:        resolvedBankId,
-          entity:         resolvedEntity,
-          amount:         -numAmount,
-          date,
-          remarks:        remarks || "Payment Made",
-          invoice_id:     paymentType === "Invoice" ? resolvedInvoiceId : null,
-          invoice_number: paymentType === "Invoice" ? resolvedInvoiceNumber : null,
-        },
-      ]);
-      if (swError) throw swError;
-
-      /* 4. If BILLABLE → increase receivable_amount on the invoice */
+      /* 2. If BILLABLE → increase receivable_amount on the invoice */
       if (isBillable && resolvedInvoiceId) {
-        /* fetch current receivable_amount */
         const { data: invData, error: fetchErr } = await supabase
           .from("invoices")
           .select("receivable_amount")

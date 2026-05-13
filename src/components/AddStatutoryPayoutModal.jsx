@@ -209,10 +209,11 @@ const AddStatutoryPayoutModal = ({
 
     const payload = {
       entity: formData.entity,
+      bank_id: formData.bank_id, // ✅ ADD THIS LINE
       month: `${formData.forTheMonth}-01`,
       type: formData.statutoryPayoutType,
-      total_due: Number(formData.totalDue), // keep for record
-      total_paid: Number(formData.totalPaid), // current payment only
+      total_due: Number(formData.totalDue),
+      total_paid: Number(formData.totalPaid),
       pending_due: Number(formData.pendingDue),
       penalty: formData.anyInterestPenalties === "Yes",
       penalty_amount: Number(formData.penaltyAmount || 0),
@@ -233,17 +234,17 @@ const AddStatutoryPayoutModal = ({
     const { error: bankError } = await supabase.from("bank_entries").insert([
       {
         bank_id: formData.bank_id,
-    
+
         entity: formData.entity,
-    
+
         date: new Date().toISOString().split("T")[0],
-    
+
         amount: Number(formData.totalPaid),
-    
+
         type: "debit",
-    
+
         entry_type: "statutory_payment",
-    
+
         remarks: `${formData.statutoryPayoutType} Payment`,
       },
     ]);

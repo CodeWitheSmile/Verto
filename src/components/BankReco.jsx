@@ -89,7 +89,6 @@ const BankTransferModal = ({
 
     const currentBalance = senderBankRows.reduce((sum, e) => {
       const amt = Number(e.amount || 0);
-
       return e.type === "debit" ? sum - amt : sum + amt;
     }, 0);
 
@@ -105,6 +104,7 @@ const BankTransferModal = ({
     setLoading(true);
     try {
       if (editData?.id) {
+        // ── EDIT: just update the transfer record ──
         const { error } = await supabase
           .from("bank_transfers")
           .update({
@@ -117,9 +117,10 @@ const BankTransferModal = ({
           .eq("id", editData.id);
         if (error) throw error;
       } else {
+        // ── NEW: insert transfer only — trg_bank_transfer handles bank_entries ──
         const referenceNo = "TRF-" + Date.now();
 
-        const { data: transferData, error } = await supabase
+        const { error } = await supabase
           .from("bank_transfers")
           .insert([
             {
@@ -135,42 +136,10 @@ const BankTransferModal = ({
           .single();
 
         if (error) throw error;
-
-        // ✅ SENDER DEBIT
-        const { error: senderError } = await supabase
-          .from("bank_entries")
-          .insert([
-            {
-              bank_id: form.sender_bank_id,
-              date: form.transfer_date,
-              amount: parseFloat(form.amount),
-              type: "debit",
-              entity: "Bank Transfer",
-              remarks: `Transfer to another bank`,
-              entry_type: "bank_transfer",
-              reference_no: referenceNo,
-            },
-          ]);
-
-        if (senderError) throw senderError;
-
-        // ✅ RECEIVER CREDIT
-        const { error: receiverError } = await supabase
-          .from("bank_entries")
-          .insert([
-            {
-              bank_id: form.receiver_bank_id,
-              date: form.transfer_date,
-              amount: parseFloat(form.amount),
-              type: "credit",
-              entity: "Bank Transfer",
-              remarks: `Transfer received`,
-              entry_type: "bank_transfer",
-              reference_no: referenceNo,
-            },
-          ]);
-
-        if (receiverError) throw receiverError;
+        // trg_bank_transfer on bank_transfers automatically inserts:
+        //   • debit  bank_entry for sender
+        //   • credit bank_entry for receiver
+        // No manual bank_entries inserts needed here.
       }
       onSaved?.();
       onClose();
@@ -495,9 +464,7 @@ const BankReco = () => {
     dateOfBankBal: "",
     amount: "",
     remarks: "",
-
     entry_type: "manual_adjustment",
-
     transaction_mode: "credit",
   });
 
@@ -519,7 +486,6 @@ const BankReco = () => {
 
     if (!error) {
       const uniqueEntries = [];
-
       const seen = new Set();
 
       (data || []).forEach((entry) => {
@@ -548,11 +514,11 @@ const BankReco = () => {
       .order("date", { ascending: false });
     if (!error) setSoftwareEntries(data);
   };
+
   const fetchOutstandingInvoices = async () => {
     const { data, error } = await supabase
       .from("outstanding_invoice_view")
       .select("*");
-
     if (!error) {
       setOutstandingInvoices(data || []);
     }
@@ -565,6 +531,7 @@ const BankReco = () => {
       .order("transfer_date", { ascending: false });
     if (!error) setTransfers(data || []);
   };
+
   const fetchInterestPenalties = async () => {
     const { data, error } = await supabase
       .from("interest_penalties")
@@ -581,7 +548,6 @@ const BankReco = () => {
     }
   };
 
-  // ✅ FIXED — Fetches 6 months from master_cashflow_view
   const fetchFundFlowProjection = async () => {
     const { data, error } = await supabase
       .from("master_cashflow_view")
@@ -613,33 +579,26 @@ const BankReco = () => {
     setFundFlowData(
       (data || []).map((row) => ({
         ...row,
-
         projected_income: Number(row.projected_income || 0),
-
         projected_expense: Number(row.projected_expense || 0),
-
         net_flow: Number(row.net_flow || 0),
-
         projected_closing_balance: Number(row.projected_closing_balance || 0),
-
         opening_balance: Number(row.opening_balance || 0),
       }))
     );
   };
+
   const calculateSoftwareBalance = async (bankId) => {
-    // PAYMENT RECEIVED
     const { data: received } = await supabase
       .from("payments_received")
       .select("*")
       .eq("bank_id", bankId);
 
-    // PAYMENT MADE
     const { data: made } = await supabase
       .from("payments_made")
       .select("*")
       .eq("bank_id", bankId);
 
-    // EXPENSES
     const { data: expenses } = await supabase
       .from("expenses")
       .select("*")
@@ -696,6 +655,7 @@ const BankReco = () => {
       } else {
         grouped[key].asPerBankTotalBal += Math.abs(amt);
       }
+
       const flowType =
         entry.flow_type ||
         entry.category ||
@@ -705,9 +665,7 @@ const BankReco = () => {
 
       grouped[key].manualEntries.push({
         date: entry.date,
-
         entity: entry.entity || "Verto India Pvt Ltd",
-
         transactionLabel:
           flowType === "petty_cash"
             ? "Petty Cash"
@@ -740,7 +698,6 @@ const BankReco = () => {
           entry.type === "debit"
             ? -Math.abs(entry.amount)
             : Math.abs(entry.amount),
-
         remarks: entry.remarks,
       });
     });
@@ -756,42 +713,20 @@ const BankReco = () => {
       sortedRows.map(async (row) => {
         const bankId = row.bank_id;
 
-        // ✅ Previous closing balance
         const previousBankBalance = runningBankBalances[bankId] || 0;
         const previousSoftwareBalance = runningSoftwareBalances[bankId] || 0;
 
-        // =====================================================
-        // SOFTWARE EXPECTED BALANCE
-        // =====================================================
-
-        // =====================================================
-        // SOFTWARE EXPECTED BALANCE
-        // =====================================================
-
         const currentSoftwareMovement = await calculateSoftwareBalance(bankId);
-
-        // ✅ Current month bank movement
         const currentBankMovement = row.asPerBankTotalBal;
 
-        // ✅ Running closing balance
         row.asPerBankTotalBal = previousBankBalance + currentBankMovement;
-
         row.asPerSwTotalBal = previousSoftwareBalance + currentSoftwareMovement;
 
-        // ✅ Running closing balance
-        row.asPerBankTotalBal = previousBankBalance + currentBankMovement;
-
-        row.asPerSwTotalBal = previousSoftwareBalance + currentSoftwareMovement;
-
-        // ✅ Save running balance for next month
         runningBankBalances[bankId] = row.asPerBankTotalBal;
-
         runningSoftwareBalances[bankId] = row.asPerSwTotalBal;
 
         row.difference = row.asPerBankTotalBal - row.asPerSwTotalBal;
-
         row.remainingBalance = Math.abs(row.difference);
-
         row.status = row.difference < 50000 ? "reconciled" : "pending";
 
         return row;
@@ -937,7 +872,7 @@ const BankReco = () => {
     }
 
     const enteredAmount = parseFloat(newEntry.amount || 0);
-    // ✅ TOTAL BALANCE UPDATE MODE
+
     if (newEntry.transaction_mode === "total_update") {
       const bankEntries = entries.filter(
         (e) => String(e.bank_id) === String(newEntry.bank_id)
@@ -945,22 +880,21 @@ const BankReco = () => {
 
       const currentBalance = bankEntries.reduce((sum, e) => {
         const amt = Number(e.amount || 0);
-
         return e.type === "debit" ? sum - amt : sum + amt;
       }, 0);
 
       const adjustment = enteredAmount - currentBalance;
 
       newEntry.amount = Math.abs(adjustment);
-
       newEntry.transaction_mode = adjustment >= 0 ? "credit" : "debit";
-
       newEntry.entry_type = "bank_balance_adjustment";
     }
+
     if (enteredAmount <= 0) {
       alert("Amount must be greater than 0");
       return;
     }
+
     if (!selectedRow) {
       alert("No month selected. Please select a row first.");
       return;
@@ -969,6 +903,7 @@ const BankReco = () => {
     const currentRemaining =
       (selectedRow?.asPerBankTotalBal || 0) -
       (selectedRow?.asPerSwTotalBal || 0);
+
     if (enteredAmount > Math.abs(currentRemaining)) {
       alert(
         `Cannot enter more than remaining balance ₹${Math.abs(
@@ -978,23 +913,13 @@ const BankReco = () => {
       return;
     }
 
-    // =====================================
-    // ERP BANK ENTRY LOGIC
-    // =====================================
-
     let finalAmount = enteredAmount;
-
     let finalType = newEntry.transaction_mode || "credit";
-
     let finalEntryType = newEntry.entry_type || "manual_adjustment";
-    // ✅ DEFAULT MANUAL ENTRY TYPE
+
     if (!newEntry.entry_type || newEntry.entry_type === "other") {
       finalEntryType = "manual_adjustment";
     }
-
-    // =====================================
-    // TOTAL BALANCE UPDATE MODE
-    // =====================================
 
     if (newEntry.transaction_mode === "total_update") {
       const bankEntries = entries.filter(
@@ -1003,39 +928,25 @@ const BankReco = () => {
 
       const currentBalance = bankEntries.reduce((sum, e) => {
         const amt = Math.abs(Number(e.amount || 0));
-
         return String(e.type).toLowerCase() === "debit" ? sum - amt : sum + amt;
       }, 0);
 
       const adjustment = enteredAmount - currentBalance;
 
       finalAmount = Math.abs(adjustment);
-
       finalType = adjustment >= 0 ? "credit" : "debit";
-
       finalEntryType = "bank_balance_adjustment";
     }
-
-    // =====================================
-    // INSERT ENTRY
-    // =====================================
 
     const { error } = await supabase.from("bank_entries").insert([
       {
         bank_id: newEntry.bank_id,
-
         entity: newEntry.entity || "Verto India Pvt Ltd",
-
         amount: finalAmount,
-
         date: newEntry.dateOfBankBal || new Date().toISOString().split("T")[0],
-
         remarks: newEntry.remarks || "",
-
         entry_type: finalEntryType,
-
         type: finalType,
-
         reference_no: "BNK-" + Date.now(),
       },
     ]);
@@ -1089,9 +1000,7 @@ const BankReco = () => {
           await fetchTransfers();
           await fetchEntries();
           await fetchSoftwareEntries();
-
           buildBankRecoData();
-
           setEditTransfer(null);
         }}
       />
@@ -1427,7 +1336,6 @@ const BankReco = () => {
               </div>
             </Card>
           ) : (
-            /* ── ✅ FIXED FUND FLOW PROJECTION TABLE ── */
             <Card className="overflow-hidden">
               <div className="p-4 border-b border-gray-100 bg-purple-50/50 flex justify-between items-center">
                 <h3 className="font-semibold text-gray-900 flex items-center">
@@ -1479,7 +1387,6 @@ const BankReco = () => {
                           row.projected_closing_balance ?? 0
                         );
 
-                        // ✅ Highlight current month
                         const isCurrentMonth = row.full_date
                           ? new Date(row.full_date)
                               .toISOString()
@@ -1508,29 +1415,21 @@ const BankReco = () => {
                                 )}
                               </div>
                             </td>
-
-                            {/* ✅ Opening Balance = previous month's closing */}
                             <td className="p-4 text-right font-mono text-blue-700">
                               {formatCurrency(openingBal)}
                             </td>
-
-                            {/* Projected Income */}
                             <td className="p-4 text-right font-mono text-emerald-700">
                               <span className="flex items-center justify-end">
                                 <ArrowUpRight className="w-4 h-4 mr-1" />
                                 {formatCurrency(income)}
                               </span>
                             </td>
-
-                            {/* Projected Expense */}
                             <td className="p-4 text-right font-mono text-rose-700">
                               <span className="flex items-center justify-end">
                                 <ArrowDownLeft className="w-4 h-4 mr-1" />
                                 {formatCurrency(expense)}
                               </span>
                             </td>
-
-                            {/* Net Flow */}
                             <td
                               className={`p-4 text-right font-mono font-medium ${
                                 netFlow >= 0
@@ -1541,8 +1440,6 @@ const BankReco = () => {
                               {netFlow >= 0 ? "+" : ""}
                               {formatCurrency(netFlow)}
                             </td>
-
-                            {/* ✅ Projected Closing = opening + net_flow (cumulative) */}
                             <td className="p-4 text-right font-mono font-bold text-purple-700 bg-purple-50/50 text-base">
                               {formatCurrency(closingBal)}
                             </td>
@@ -1710,10 +1607,8 @@ const BankReco = () => {
                           <span className="font-mono font-medium text-blue-600">
                             {(() => {
                               const latestBalances = {};
-
                               bankData.forEach((row) => {
                                 const existing = latestBalances[row.bank_id];
-
                                 if (
                                   !existing ||
                                   new Date(row.date) > new Date(existing.date)
@@ -1721,7 +1616,6 @@ const BankReco = () => {
                                   latestBalances[row.bank_id] = row;
                                 }
                               });
-
                               return formatCurrency(
                                 Object.values(latestBalances).reduce(
                                   (sum, row) =>
@@ -1869,7 +1763,6 @@ const BankReco = () => {
                     </Card>
                   </>
                 ) : (
-                  /* ✅ FIXED Projection Summary side panel */
                   <Card className="p-4 bg-purple-50 border-purple-200">
                     <h4 className="text-sm font-semibold text-purple-900 mb-3">
                       Projection Summary
@@ -1905,8 +1798,6 @@ const BankReco = () => {
                         </span>
                       </div>
                       <div className="h-px bg-purple-200 my-1" />
-
-                      {/* Month-by-month mini summary */}
                       <p className="text-xs font-semibold text-purple-800 uppercase tracking-wider">
                         Monthly Closing
                       </p>
@@ -1930,7 +1821,6 @@ const BankReco = () => {
                           </span>
                         </div>
                       ))}
-
                       <div className="h-px bg-purple-200 my-1" />
                       <div className="flex justify-between items-center">
                         <span className="text-xs text-purple-600">

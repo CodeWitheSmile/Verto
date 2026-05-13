@@ -265,7 +265,6 @@ const AddExpenseDetailsModal = ({
       setForm(DEFAULT_FORM);
     }
 
-    // ✅ Pre-select invoice if passed as prop
     if (invoice) {
       setSelectedInvoice(invoice);
     } else {
@@ -322,7 +321,6 @@ const AddExpenseDetailsModal = ({
           .ilike("invoice_number", `%${invoiceSearch}%`)
           .limit(8);
 
-        // ── If client name is selected, filter by client ──
         if (form.clientName) {
           const { data: clientRow } = await supabase
             .from("clients_master")
@@ -371,34 +369,21 @@ const AddExpenseDetailsModal = ({
   // ── Build view data from current form state ──
   const viewData = {
     entity: form.entity || "-",
-
     department: form.department || "-",
-
     payHead: form.payHead || "-",
-
     paymentAmount: Number(form.dueAmount || 0),
-
     incomeTax: Number(form.tdsAmount || 0),
-
     netPayment: Number(form.transferAmount || 0),
-
     paymentDate: form.dateOfPay || "-",
-
     bankName:
       form.paymentMode === "cash"
         ? "Cash"
         : banks.find((b) => b.id === form.bankId)?.bank_name || "-",
-
     referenceNo: editData?.reference_no || "NEW ENTRY",
-
     employeeName: form.issuedTo || "-",
-
     paymentDescription: form.paymentDescription || "-",
-
     remarks: form.remarks || "-",
-
     clientName: form.clientName || "Verto",
-
     paymentMode: form.paymentMode || "-",
   };
 
@@ -483,53 +468,29 @@ const AddExpenseDetailsModal = ({
       }
 
       if (error) throw error;
-      console.log("✅ SAVED PAYMENT:", savedPayment);
-      // ✅ CREATE TDS LIABILITY
+      // trg_payment_made_bank fires on insert and auto-creates the bank_entry debit.
+      // No manual software_entry insert needed here.
+
+      // ── TDS liability ──
       if ((parseFloat(form.tdsAmount) || 0) > 0) {
         const { error: taxErr } = await supabase
           .from("statutory_liabilities")
           .insert([
             {
               source_type: "expense",
-
               source_id: savedPayment.id,
-
               statutory_type: "TDS",
-
               entity: form.entity,
-
               amount: parseFloat(form.tdsAmount),
-
               status: "pending",
             },
           ]);
-
         if (taxErr) {
           console.error("TDS liability error:", taxErr);
         }
       }
 
-      // ── Bank Entry (debit) ──
-      if (form.paymentMode === "bank" && form.bankId && transferAmt > 0) {
-
-        // ── Software Entry ──
-        const { error: swErr } = await supabase
-          .from("software_entries")
-          .insert([
-            {
-              bank_id: form.bankId,
-              entity: form.entity,
-              amount: transferAmt, // ✅ NEGATIVE
-              date: form.dateOfPay,
-              remarks: form.paymentDescription || form.payHead || "Expense",
-              invoice_id: resolvedInvoiceId,
-            },
-          ]);
-        if (swErr) console.error("Software entry error:", swErr);
-      }
-
-      // ── ✅ BILLABLE EXPENSE → increase receivable_amount on invoice ──
-      // Client owes more because we incurred an expense on their behalf
+      // ── BILLABLE EXPENSE → increase receivable_amount on the invoice ──
       if (
         form.isBillable &&
         form.clientType === "Client" &&
@@ -556,9 +517,6 @@ const AddExpenseDetailsModal = ({
           }
         }
       }
-
-      // ── NON-BILLABLE: no invoice effect ──
-      // Bank entry already done above; outstanding unchanged.
 
       setSaved(true);
       setTimeout(() => {
@@ -621,7 +579,6 @@ const AddExpenseDetailsModal = ({
                 <button
                   onClick={() => {
                     console.log("VIEW EXPENSE ID:", editData?.id);
-
                     setViewModalOpen(true);
                   }}
                   type="button"
@@ -727,7 +684,7 @@ const AddExpenseDetailsModal = ({
                     </div>
                   </FieldRow>
 
-                  {/* ✅ Invoice Search / Link (shown when billable client expense) */}
+                  {/* Invoice Search / Link (shown when billable client expense) */}
                   {form.isBillable && form.clientType === "Client" && (
                     <FieldRow
                       label="Link Invoice"
@@ -736,7 +693,6 @@ const AddExpenseDetailsModal = ({
                       error={errors.invoiceId}
                       highlight
                     >
-                      {/* If invoice passed from dashboard, show it as locked */}
                       {invoice ? (
                         <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
                           <p className="font-semibold text-gray-900 text-sm">
@@ -747,7 +703,6 @@ const AddExpenseDetailsModal = ({
                           </p>
                         </div>
                       ) : selectedInvoice ? (
-                        // Selected via search
                         <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 flex items-center justify-between">
                           <div>
                             <p className="font-semibold text-gray-900 text-sm">
@@ -772,7 +727,6 @@ const AddExpenseDetailsModal = ({
                           </button>
                         </div>
                       ) : (
-                        // Search input
                         <div className="relative">
                           <Search className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
                           <input
@@ -801,7 +755,6 @@ const AddExpenseDetailsModal = ({
                                     setSelectedInvoice(inv);
                                     setInvoiceSearch(inv.invoice_number);
                                     setInvoiceResults([]);
-                                    // Auto-fill client name
                                     if (inv.clients_master?.client_name) {
                                       setField(
                                         "clientName",
