@@ -16,6 +16,12 @@ import {
   ChevronRight,
   LogOut,
   Settings,
+  X,
+  KeyRound,
+  UserCog,
+  ShieldCheck,
+  Mail,
+  RefreshCw,
 } from "lucide-react";
 
 // Import Components
@@ -37,6 +43,274 @@ import AddInterestPenaltyModal from "./components/AddInterestPenaltyModal";
 import AddExpenseDetailsManModal from "./components/AddExpenseDetailsManModal";
 import LedgerPage from "./components/LedgerPage";
 
+// ── Manage Team Modal ────────────────────────────────────────────────────────
+const ManageTeamModal = ({ onClose, role }) => {
+  const [activeSection, setActiveSection] = useState("team"); // "team" | "reset"
+  const [resetFormEmail, setResetFormEmail] = useState("");
+  const [resetFormMessage, setResetFormMessage] = useState("");
+  const [resetFormLoading, setResetFormLoading] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
+
+  const generateRandomPassword = (length = 12) => {
+    const charset =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_+=";
+    return Array.from(
+      { length },
+      () => charset[Math.floor(Math.random() * charset.length)]
+    ).join("");
+  };
+
+  const handleAdminResetPassword = async () => {
+    const email = resetFormEmail.trim();
+    if (!email) {
+      setResetFormMessage("Please enter the employee email.");
+      setResetSuccess(false);
+      return;
+    }
+
+    setResetFormLoading(true);
+    setResetFormMessage("");
+    setResetSuccess(false);
+
+    const { data: userRole, error } = await supabase
+      .from("user_roles")
+      .select("email")
+      .eq("email", email)
+      .single();
+
+    if (error || !userRole) {
+      setResetFormMessage(
+        error
+          ? `Unable to verify email: ${error.message}`
+          : `Email not found in system: ${email}`
+      );
+      setResetSuccess(false);
+      setResetFormLoading(false);
+      return;
+    }
+
+    const tempPassword = generateRandomPassword(12);
+    setResetFormMessage(
+      `Employee verified.\n\nTemporary password:\n${tempPassword}\n\nShare this with the user so they can log in and update it.`
+    );
+    setResetSuccess(true);
+    setResetFormLoading(false);
+  };
+
+  const tabs = [
+    { id: "team", label: "Team Members", icon: UserCog },
+    { id: "reset", label: "Reset Password", icon: KeyRound },
+  ];
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        transition={{ duration: 0.25, ease: "easeOut" }}
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden"
+      >
+        {/* Modal Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50">
+          <div className="flex items-center space-x-3">
+            <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-md shadow-blue-500/20">
+              <ShieldCheck className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">
+                Team Management
+              </h2>
+              <p className="text-xs text-gray-500">
+                Manage users and access controls
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Tab Switcher */}
+        <div className="flex border-b border-gray-100 px-6">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => {
+                setActiveSection(tab.id);
+                setResetFormMessage("");
+                setResetFormEmail("");
+                setResetSuccess(false);
+              }}
+              className={`flex items-center space-x-2 px-4 py-3 text-sm font-medium border-b-2 transition-all duration-200 -mb-px ${
+                activeSection === tab.id
+                  ? "border-blue-600 text-blue-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              }`}
+            >
+              <tab.icon className="w-4 h-4" />
+              <span>{tab.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Tab Content */}
+        <div className="overflow-y-auto max-h-[60vh]">
+          <AnimatePresence mode="wait">
+            {activeSection === "team" && (
+              <motion.div
+                key="team"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                transition={{ duration: 0.18 }}
+                className="p-6"
+              >
+                <UserManagement />
+              </motion.div>
+            )}
+
+            {activeSection === "reset" && (
+              <motion.div
+                key="reset"
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -10 }}
+                transition={{ duration: 0.18 }}
+                className="p-6"
+              >
+                <div className="max-w-md mx-auto">
+                  {/* Info banner */}
+                  <div className="flex items-start space-x-3 bg-blue-50 border border-blue-100 rounded-xl p-4 mb-6">
+                    <KeyRound className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                    <p className="text-xs text-blue-700 leading-relaxed">
+                      Enter an employee's email address to verify their account
+                      and generate a temporary password. Share this with them so
+                      they can log in and set a new one.
+                    </p>
+                  </div>
+
+                  {/* Email Input */}
+                  <div className="mb-4">
+                    <label className="block text-xs font-medium text-gray-700 mb-1.5">
+                      Employee Email
+                    </label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input
+                        type="email"
+                        value={resetFormEmail}
+                        onChange={(e) => {
+                          setResetFormEmail(e.target.value);
+                          setResetFormMessage("");
+                          setResetSuccess(false);
+                        }}
+                        placeholder="employee@company.com"
+                        className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Reset Button */}
+                  <button
+                    onClick={handleAdminResetPassword}
+                    disabled={resetFormLoading || !resetFormEmail.trim()}
+                    className="w-full flex items-center justify-center space-x-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {resetFormLoading ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Verifying...</span>
+                      </>
+                    ) : (
+                      <>
+                        <KeyRound className="w-4 h-4" />
+                        <span>Generate Temporary Password</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Result Message */}
+                  <AnimatePresence>
+                    {resetFormMessage && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        className={`mt-4 rounded-xl border p-4 ${
+                          resetSuccess
+                            ? "bg-emerald-50 border-emerald-100"
+                            : "bg-rose-50 border-rose-100"
+                        }`}
+                      >
+                        {resetSuccess ? (
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold text-emerald-700 flex items-center space-x-1">
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                              <span>Employee verified successfully</span>
+                            </p>
+                            {/* Extract temp password from message */}
+                            {resetFormMessage.includes(
+                              "Temporary password:"
+                            ) && (
+                              <div className="bg-white border border-emerald-200 rounded-lg px-4 py-3 mt-2 flex items-center justify-between">
+                                <span className="font-mono text-sm font-bold tracking-widest text-gray-900">
+                                  {
+                                    resetFormMessage
+                                      .split("Temporary password:\n")[1]
+                                      ?.split("\n")[0]
+                                  }
+                                </span>
+                                <button
+                                  onClick={() => {
+                                    const pw = resetFormMessage
+                                      .split("Temporary password:\n")[1]
+                                      ?.split("\n")[0];
+                                    navigator.clipboard?.writeText(pw || "");
+                                  }}
+                                  className="text-xs text-blue-600 hover:text-blue-700 font-medium ml-3"
+                                >
+                                  Copy
+                                </button>
+                              </div>
+                            )}
+                            <p className="text-xs text-emerald-600 mt-1">
+                              Share this with the user so they can log in and
+                              update their password.
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-rose-700 whitespace-pre-line">
+                            {resetFormMessage}
+                          </p>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Modal Footer */}
+        <div className="px-6 py-3 border-t border-gray-100 bg-gray-50 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors font-medium"
+          >
+            Close
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
+// ── Main App ─────────────────────────────────────────────────────────────────
 const App = () => {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -45,9 +319,6 @@ const App = () => {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [showPaymentMadeModal, setShowPaymentMadeModal] = useState(false);
-  const [resetFormEmail, setResetFormEmail] = useState("");
-  const [resetFormMessage, setResetFormMessage] = useState("");
-  const [resetFormLoading, setResetFormLoading] = useState(false);
   const [paymentMadeInvoice, setPaymentMadeInvoice] = useState(null);
   const [showCNBadDebtModal, setShowCNBadDebtModal] = useState(false);
   const [showBounceBackModal, setShowBounceBackModal] = useState(false);
@@ -62,7 +333,8 @@ const App = () => {
   const [showStatutoryModal, setShowStatutoryModal] = useState(false);
   const [selectedExpense, setSelectedExpense] = useState(null);
   const [banks, setBanks] = useState([]);
-  // Mock clients list (will be replaced with API data later)
+  const [loggedInEmployee, setLoggedInEmployee] = useState(null);
+
   const clients = [
     "Acme Corp",
     "Globex",
@@ -80,64 +352,14 @@ const App = () => {
 
   const fetchBanks = async () => {
     const { data } = await supabase.from("bank_master").select("*");
-
     setBanks(data || []);
   };
 
   useEffect(() => {
-    window.setActiveTab = setActiveTab; // ✅ THIS FIXES YOUR ERROR
+    window.setActiveTab = setActiveTab;
   }, []);
 
-  const generateRandomPassword = (length = 10) => {
-    const charset =
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_+=";
-    return Array.from(
-      { length },
-      () => charset[Math.floor(Math.random() * charset.length)]
-    ).join("");
-  };
-
-  const handleAdminResetPassword = async () => {
-    const email = resetFormEmail.trim();
-    if (!email) {
-      alert("Enter the employee email to reset password");
-      return;
-    }
-
-    setResetFormLoading(true);
-    setResetFormMessage("");
-
-    const { data: userRole, error } = await supabase
-      .from("user_roles")
-      .select("email")
-      .eq("email", email)
-      .single();
-
-    if (error) {
-      setResetFormMessage(`Unable to verify email: ${error.message}`);
-      setResetFormLoading(false);
-      return;
-    }
-
-    if (!userRole) {
-      setResetFormMessage(`Email not registered in user_roles: ${email}`);
-      setResetFormLoading(false);
-      return;
-    }
-
-    const tempPassword = generateRandomPassword(12);
-    setResetFormMessage(
-      `Employee found in user_roles.
-Temporary password generated: ${tempPassword}
-
-Share this password with the user so they can log in and update it.`
-    );
-    setResetFormLoading(false);
-  };
-
-  // Mock entities list
   const entities = ["Verto India Pvt Ltd", "Verto Global LLC", "Verto UK Ltd"];
-  // Mock invoices list
   const invoices = [
     "INV-2023001",
     "INV-2023002",
@@ -145,14 +367,30 @@ Share this password with the user so they can log in and update it.`
     "INV-2023004",
     "INV-2023005",
   ];
-
-  // Mock payment references list
   const paymentReferences = [
     "PI-AC-150123-01",
     "PI-GL-200123-01",
     "PI-SO-250123-01",
   ];
+
   const { user, role, loading } = useAuth();
+  useEffect(() => {
+    if (user?.email) {
+      fetchLoggedInEmployee();
+    }
+  }, [user]);
+
+  const fetchLoggedInEmployee = async () => {
+    const { data } = await supabase
+      .from("internal_team")
+      .select("name, designation, email")
+      .eq("email", user.email)
+      .maybeSingle();
+
+    if (data) {
+      setLoggedInEmployee(data);
+    }
+  };
 
   console.log(
     "App.jsx - User:",
@@ -166,7 +404,6 @@ Share this password with the user so they can log in and update it.`
   if (loading) return <div>Loading...</div>;
   if (!user) return <Login />;
 
-  // Navigation Items Configuration
   const navItems = [
     {
       id: "dashboard",
@@ -206,7 +443,6 @@ Share this password with the user so they can log in and update it.`
     },
   ];
 
-  // Side Action Items
   const sideActions = [
     { label: "Add Invoice Details", color: "blue" },
     { label: "Add Payment Received", color: "emerald" },
@@ -237,7 +473,7 @@ Share this password with the user so they can log in and update it.`
   };
 
   return (
-    <div className="flex h-screen md:h-screen flex-col md:flex-row bg-slate-50  bg-slate-50 text-gray-900 font-sans overflow-hidden selection:bg-blue-500/30">
+    <div className="flex h-screen md:h-screen flex-col md:flex-row bg-slate-50 text-gray-900 font-sans overflow-hidden selection:bg-blue-500/30">
       {/* --- SIDEBAR --- */}
       <motion.aside
         initial={false}
@@ -245,7 +481,7 @@ Share this password with the user so they can log in and update it.`
         transition={{ duration: 0.3, ease: "easeInOut" }}
         onMouseEnter={() => setIsSidebarOpen(true)}
         onMouseLeave={() => setIsSidebarOpen(false)}
-        className=" hidden md:flex ... bg-white border-r border-gray-200 flex flex-col z-20 relative shadow-sm"
+        className="hidden md:flex bg-white border-r border-gray-200 flex flex-col z-20 relative shadow-sm"
       >
         {/* Logo Area */}
         <div className="h-16 flex items-center px-4 border-b border-gray-200 overflow-hidden">
@@ -286,11 +522,8 @@ Share this password with the user so they can log in and update it.`
             )}
           </AnimatePresence>
 
-          {navItems.map((item, idx) => {
-            // 🔴 MANAGER restriction
+          {navItems.map((item) => {
             if (role === "manager" && item.id === "bank-reco") return null;
-
-            // 🔴 EMPLOYEE restriction (hide all main modules)
             if (role === "employee") return null;
 
             return (
@@ -402,9 +635,7 @@ Share this password with the user so they can log in and update it.`
                     action.color
                   )} ${!isSidebarOpen && "justify-center"}`}
                 >
-                  <Plus
-                    className={`w-3.5 h-3.5 flex-shrink-0 opacity-60 group-hover:opacity-100`}
-                  />
+                  <Plus className="w-3.5 h-3.5 flex-shrink-0 opacity-60 group-hover:opacity-100" />
                   <AnimatePresence>
                     {isSidebarOpen && (
                       <motion.span
@@ -463,8 +694,15 @@ Share this password with the user so they can log in and update it.`
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-3 relative">
               <div className="text-right hidden sm:block">
-                <p className="text-sm font-medium text-gray-900">Admin User</p>
-                <p className="text-xs text-gray-500">Finance Manager</p>
+                <p className="text-sm font-medium text-gray-900">
+                  {loggedInEmployee?.name || "User"}
+                </p>
+
+                <p className="text-xs text-gray-500">
+                  {loggedInEmployee?.designation || role}
+                </p>
+
+                <p className="text-[10px] text-gray-400">{user?.email}</p>
               </div>
               <button
                 onClick={() => setShowProfileMenu(!showProfileMenu)}
@@ -479,13 +717,20 @@ Share this password with the user so they can log in and update it.`
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: -10, scale: 0.95 }}
                     transition={{ duration: 0.2 }}
-                    className="absolute top-full right-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-xl py-2 z-50"
+                    className="absolute top-full right-0 mt-2 w-52 bg-white border border-gray-200 rounded-xl shadow-xl py-2 z-50"
                   >
                     <div className="px-4 py-3 border-b border-gray-100">
                       <p className="text-sm font-medium text-gray-900">
-                        Admin User
+                        {loggedInEmployee?.name || "User"}
                       </p>
-                      <p className="text-xs text-gray-500">admin@verto.com</p>
+
+                      <p className="text-xs text-gray-500">
+                        {loggedInEmployee?.designation || role}
+                      </p>
+
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        {user?.email}
+                      </p>
                     </div>
 
                     <button className="w-full flex items-center space-x-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
@@ -493,7 +738,7 @@ Share this password with the user so they can log in and update it.`
                       <span>Account Settings</span>
                     </button>
 
-                    {/* ✅ ADMIN ONLY */}
+                    {/* ✅ ADMIN ONLY — now opens the unified modal */}
                     {role === "admin" && (
                       <button
                         onClick={() => {
@@ -505,38 +750,6 @@ Share this password with the user so they can log in and update it.`
                         <Users className="w-4 h-4" />
                         <span>Manage Team</span>
                       </button>
-                    )}
-
-                    {role === "admin" && (
-                      <div className="px-4 py-3 border-t border-gray-100">
-                        <p className="text-sm font-semibold text-gray-900">
-                          Reset User Password
-                        </p>
-                        <p className="text-xs text-gray-500 mb-2">
-                          Enter email and click Reset Password to verify the
-                          user exists in user_roles and generate a temporary
-                          password.
-                        </p>
-                        <input
-                          type="email"
-                          value={resetFormEmail}
-                          onChange={(e) => setResetFormEmail(e.target.value)}
-                          placeholder="employee@example.com"
-                          className="w-full mb-2 rounded-xl border border-gray-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                        />
-                        <button
-                          onClick={handleAdminResetPassword}
-                          disabled={resetFormLoading}
-                          className="w-full rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                        >
-                          {resetFormLoading ? "Sending..." : "Reset Password"}
-                        </button>
-                        {resetFormMessage && (
-                          <p className="mt-2 whitespace-pre-line text-xs text-gray-700">
-                            {resetFormMessage}
-                          </p>
-                        )}
-                      </div>
                     )}
 
                     <button className="w-full flex items-center space-x-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
@@ -586,14 +799,11 @@ Share this password with the user so they can log in and update it.`
                       setSelectedInvoice={setSelectedInvoice}
                     />
                   )}
-
                   {activeTab === "pl-center" && <ProfitCenterPL />}
                   {activeTab === "ledger" && <LedgerPage />}
                   {activeTab === "pl-client" && <ClientPL />}
                   {activeTab === "internal-cost" && <InternalCost />}
                   {activeTab === "internal-team" && <InternalTeamDetails />}
-
-                  {/* 🔴 Manager restriction inside content */}
                   {!(role === "manager" && activeTab === "bank-reco") &&
                     activeTab === "bank-reco" && <BankReco />}
                 </>
@@ -607,14 +817,13 @@ Share this password with the user so they can log in and update it.`
         </div>
       </main>
 
-      {/* Add Payment Received Modal */}
+      {/* ── Modals ── */}
       <AddPaymentReceivedModal
         isOpen={showPaymentModal}
         onClose={() => setShowPaymentModal(false)}
         invoice={selectedInvoice}
-        onPaymentSaved={() => setRefreshFlag(!refreshFlag)} // 🔥 PASS DATA
-        client
-        s={clients}
+        onPaymentSaved={() => setRefreshFlag(!refreshFlag)}
+        clients={clients}
       />
 
       <AddPaymentMadeModal
@@ -624,7 +833,6 @@ Share this password with the user so they can log in and update it.`
         onSaved={() => setRefreshFlag(!refreshFlag)}
       />
 
-      {/* Add Invoice Modal */}
       <AddInvoiceModal
         isOpen={showInvoiceModal}
         onClose={() => setShowInvoiceModal(false)}
@@ -632,14 +840,12 @@ Share this password with the user so they can log in and update it.`
         entities={entities}
       />
 
-      {/* Add CN/Bad Debt Modal */}
       <AddCNBadDebtModal
         isOpen={showCNBadDebtModal}
         onClose={() => setShowCNBadDebtModal(false)}
         invoices={invoices}
       />
 
-      {/* Add Bounce Back Modal */}
       <AddBounceBackModal
         isOpen={showBounceBackModal}
         onClose={() => setShowBounceBackModal(false)}
@@ -653,14 +859,13 @@ Share this password with the user so they can log in and update it.`
         banks={banks}
       />
 
-      {/* Add Statutory Payout Modal */}
       <AddStatutoryPayoutModal
         isOpen={showStatutoryModal}
         onClose={() => setShowStatutoryModal(false)}
         entities={entities}
         banks={banks}
       />
-      {/* Add Internal Team Modal */}
+
       <AddInternalTeamModal
         isOpen={showInternalTeamModal}
         onClose={() => {
@@ -670,7 +875,6 @@ Share this password with the user so they can log in and update it.`
         editingEmployee={editingEmployee}
       />
 
-      {/* Add Expense Details Modal */}
       <AddExpenseDetailsModal
         isOpen={showExpenseDetailsModal}
         onClose={() => setShowExpenseDetailsModal(false)}
@@ -679,25 +883,20 @@ Share this password with the user so they can log in and update it.`
         invoice={selectedInvoice}
       />
 
-      {/* Add Expense Details/Man Modal */}
       <AddExpenseDetailsManModal
         isOpen={showExpenseDetailsManModal}
         onClose={() => setShowExpenseDetailsManModal(false)}
       />
-      {showUserManagement && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-[500px] relative">
-            <button
-              onClick={() => setShowUserManagement(false)}
-              className="absolute top-2 right-2 text-red-500"
-            >
-              ✖
-            </button>
 
-            <UserManagement />
-          </div>
-        </div>
-      )}
+      {/* ── Unified Manage Team Modal ── */}
+      <AnimatePresence>
+        {showUserManagement && (
+          <ManageTeamModal
+            onClose={() => setShowUserManagement(false)}
+            role={role}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };
