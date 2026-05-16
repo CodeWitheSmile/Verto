@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import AddBankModal from "./AddBankModal";
 import AddEntryModal from "./AddEntryModal";
@@ -22,12 +22,734 @@ import {
   History,
   Trash2,
   Edit2,
+  Calendar,
+  BarChart2,
+  Clock,
+  SplitSquareHorizontal,
+  ChevronRight,
+  TrendingDown,
+  Layers,
+  Zap,
 } from "lucide-react";
 import Card from "./ui/Card";
 import Button from "./ui/button";
 import Badge from "./ui/Badge";
 
-// ─── BANK TRANSFER MODAL ───────────────────────────────────────────────────────
+// ─── PERIOD CONFIG ─────────────────────────────────────────────────────────────
+const PERIOD_OPTIONS = [
+  { key: "weekly", label: "Weekly", days: 7, icon: Zap, color: "indigo" },
+  {
+    key: "15days",
+    label: "15 Days",
+    days: 15,
+    icon: SplitSquareHorizontal,
+    color: "sky",
+  },
+  { key: "25days", label: "25 Days", days: 25, icon: Clock, color: "violet" },
+  {
+    key: "monthly",
+    label: "Monthly",
+    days: 30,
+    icon: Calendar,
+    color: "purple",
+  },
+];
+
+const COLOR_MAP = {
+  indigo: {
+    bg: "bg-indigo-50",
+    border: "border-indigo-200",
+    text: "text-indigo-700",
+    badge: "bg-indigo-100 text-indigo-700",
+    btn: "bg-indigo-600 hover:bg-indigo-700",
+  },
+  sky: {
+    bg: "bg-sky-50",
+    border: "border-sky-200",
+    text: "text-sky-700",
+    badge: "bg-sky-100 text-sky-700",
+    btn: "bg-sky-600 hover:bg-sky-700",
+  },
+  violet: {
+    bg: "bg-violet-50",
+    border: "border-violet-200",
+    text: "text-violet-700",
+    badge: "bg-violet-100 text-violet-700",
+    btn: "bg-violet-600 hover:bg-violet-700",
+  },
+  purple: {
+    bg: "bg-purple-50",
+    border: "border-purple-200",
+    text: "text-purple-700",
+    badge: "bg-purple-100 text-purple-700",
+    btn: "bg-purple-600 hover:bg-purple-700",
+  },
+};
+
+// ─── HELPERS ───────────────────────────────────────────────────────────────────
+const addDays = (date, n) => {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+};
+const fmtShort = (d) =>
+  d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+const fmtLakh = (v = 0) => `₹ ${(Number(v) / 100000).toFixed(2)}L`;
+const fmtFull = (v = 0) => `₹ ${Math.round(Number(v)).toLocaleString("en-IN")}`;
+
+// ─── BUILD PERIOD BUCKETS ──────────────────────────────────────────────────────
+// rawRows: one row per day from master_cashflow_view
+// Each row must have: full_date, opening_balance, projected_income, projected_expense,
+//   expected_receivable, advance_payment, salary_payout, statutory_outflow,
+//   other_expense, petty_cash, bounce_risk, bad_debt_cn
+const buildPeriodBuckets = (rawRows, periodDays) => {
+  if (!rawRows || rawRows.length === 0) return [];
+
+  const sorted = [...rawRows].sort(
+    (a, b) => new Date(a.full_date) - new Date(b.full_date)
+  );
+  // ALWAYS BUILD NEXT 6 MONTHS
+  const today = new Date();
+
+  const start = new Date(today.getFullYear(), today.getMonth(), 1);
+
+  const end = new Date(today.getFullYear(), today.getMonth() + 6, 0);
+
+  const buckets = [];
+  let cursor = new Date(start);
+  // Opening balance for first bucket comes from the first row's opening_balance
+  let runningBalance = Number(sorted[0].opening_balance || 0);
+
+  while (cursor <= end) {
+    const bucketStart = new Date(cursor);
+    let bucketEnd;
+
+    if (periodDays === 30) {
+      bucketEnd = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
+    } else {
+      bucketEnd = addDays(cursor, periodDays - 1);
+    }
+
+    const rowsInBucket = sorted.filter((r) => {
+      const d = new Date(r.full_date);
+      return d >= bucketStart && d <= bucketEnd;
+    });
+
+    const sum = (key) =>
+      rowsInBucket.reduce((s, r) => s + Number(r[key] || 0), 0);
+
+    const income = sum("projected_income");
+    const expense = sum("projected_expense");
+    const netFlow = income - expense;
+
+    const openingBalance = runningBalance;
+    const closingBalance = openingBalance + netFlow;
+    runningBalance = closingBalance;
+
+    // Label
+    let label;
+    if (periodDays === 7) label = `Week of ${fmtShort(bucketStart)}`;
+    else if (periodDays === 30)
+      label = bucketStart.toLocaleDateString("en-IN", {
+        month: "short",
+        year: "numeric",
+      });
+    else label = `${fmtShort(bucketStart)} – ${fmtShort(bucketEnd)}`;
+
+    buckets.push({
+      label,
+      startDate: bucketStart,
+      endDate: bucketEnd,
+      income,
+      expense,
+      netFlow,
+      openingBalance,
+      closingBalance,
+      rowCount: rowsInBucket.length,
+      breakdown: {
+        expected_receivable: sum("expected_receivable"),
+        advance_payment: sum("advance_payment"),
+        salary_payout: sum("salary_payout"),
+        statutory_outflow: sum("statutory_outflow"),
+        other_expense: sum("other_expense"),
+        petty_cash: sum("petty_cash"),
+        bounce_risk: sum("bounce_risk"),
+        bad_debt_cn: sum("bad_debt_cn"),
+      },
+    });
+
+    if (periodDays === 30) {
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+    } else {
+      cursor = addDays(bucketEnd, 1);
+    }
+  }
+
+  return buckets;
+};
+
+// ─── FUND FLOW PROJECTION PANEL ────────────────────────────────────────────────
+const FundFlowProjectionPanel = ({ fundFlowData }) => {
+  const [selectedPeriod, setSelectedPeriod] = useState("monthly");
+  const [expandedRow, setExpandedRow] = useState(null);
+  const [viewMode, setViewMode] = useState("combined");
+
+  const periodCfg = PERIOD_OPTIONS.find((p) => p.key === selectedPeriod);
+  const colors = COLOR_MAP[periodCfg.color];
+
+  const buckets = useMemo(
+    () => buildPeriodBuckets(fundFlowData, periodCfg.days),
+    [fundFlowData, selectedPeriod]
+  );
+
+  const totalIncome = buckets.reduce((s, b) => s + b.income, 0);
+  const totalExpense = buckets.reduce((s, b) => s + b.expense, 0);
+  const totalNet = totalIncome - totalExpense;
+  const maxBar = Math.max(
+    ...buckets.map((b) => Math.max(b.income, b.expense)),
+    1
+  );
+
+  const showIncome = viewMode === "combined" || viewMode === "income";
+  const showExpense = viewMode === "combined" || viewMode === "expense";
+  const showNet = viewMode === "combined";
+
+  return (
+    <div className="space-y-4">
+      {/* ── Header card: period + view selectors + summary ── */}
+      <Card className={`p-4 ${colors.bg} ${colors.border} border`}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3
+              className={`font-bold text-base ${colors.text} flex items-center gap-2`}
+            >
+              <TrendingUp className="w-4 h-4" />
+              Fund Flow Projection
+            </h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Select a period to analyse cash flow
+            </p>
+          </div>
+
+          {/* Period pills */}
+          <div className="flex items-center gap-1 bg-white rounded-xl p-1 shadow-inner border border-gray-100">
+            {PERIOD_OPTIONS.map((opt) => {
+              const Icon = opt.icon;
+              const active = selectedPeriod === opt.key;
+              const c = COLOR_MAP[opt.color];
+              return (
+                <button
+                  key={opt.key}
+                  onClick={() => {
+                    setSelectedPeriod(opt.key);
+                    setExpandedRow(null);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    active
+                      ? `${c.btn} text-white shadow-md`
+                      : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"
+                  }`}
+                >
+                  <Icon className="w-3 h-3" />
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* View mode pills */}
+          <div className="flex items-center gap-1 bg-white rounded-xl p-1 shadow-inner border border-gray-100">
+            {[
+              {
+                id: "combined",
+                label: "All",
+                icon: Layers,
+                activeClass: `${colors.btn} text-white shadow-md`,
+              },
+              {
+                id: "income",
+                label: "Income",
+                icon: ArrowUpRight,
+                activeClass: "bg-emerald-600 text-white shadow-md",
+              },
+              {
+                id: "expense",
+                label: "Expense",
+                icon: ArrowDownLeft,
+                activeClass: "bg-rose-600 text-white shadow-md",
+              },
+            ].map(({ id, label, icon: Icon, activeClass }) => (
+              <button
+                key={id}
+                onClick={() => setViewMode(id)}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  viewMode === id
+                    ? activeClass
+                    : "text-gray-500 hover:bg-gray-50"
+                }`}
+              >
+                <Icon className="w-3 h-3" />
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Summary strip */}
+        <div className="grid grid-cols-3 gap-3 mt-4">
+          {[
+            {
+              label: "Total Income",
+              value: totalIncome,
+              textCls: "text-emerald-700",
+              bgCls: "bg-emerald-50 border-emerald-200",
+            },
+            {
+              label: "Total Expense",
+              value: totalExpense,
+              textCls: "text-rose-700",
+              bgCls: "bg-rose-50 border-rose-200",
+            },
+            {
+              label: "Net Flow",
+              value: totalNet,
+              textCls: totalNet >= 0 ? "text-emerald-700" : "text-rose-700",
+              bgCls: "bg-white border-gray-200",
+            },
+          ].map(({ label, value, textCls, bgCls }) => (
+            <div key={label} className={`rounded-xl border p-3 ${bgCls}`}>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                {label}
+              </p>
+              <p
+                className={`text-lg font-extrabold font-mono ${textCls} leading-tight mt-0.5`}
+              >
+                {fmtLakh(value)}
+              </p>
+              <p className="text-[10px] text-gray-400 mt-0.5">
+                {fmtFull(value)}
+              </p>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* ── Mini bar chart ── */}
+      {buckets.length > 0 && (
+        <Card className="p-4 overflow-x-auto">
+          <div
+            className="flex items-end gap-1 min-w-max"
+            style={{ height: 64 }}
+          >
+            {buckets.map((b, i) => {
+              const incH = Math.round((b.income / maxBar) * 56) || 2;
+              const expH = Math.round((b.expense / maxBar) * 56) || 2;
+              const isActive = expandedRow === i;
+              return (
+                <div
+                  key={i}
+                  title={b.label}
+                  onClick={() => setExpandedRow(isActive ? null : i)}
+                  className={`flex items-end gap-0.5 cursor-pointer group ${
+                    isActive ? "opacity-100" : "opacity-80 hover:opacity-100"
+                  }`}
+                  style={{ minWidth: 28 }}
+                >
+                  {showIncome && (
+                    <div
+                      className="w-3 rounded-t transition-all"
+                      style={{
+                        height: incH,
+                        background: isActive ? "#059669" : "#34d399",
+                      }}
+                    />
+                  )}
+                  {showExpense && (
+                    <div
+                      className="w-3 rounded-t transition-all"
+                      style={{
+                        height: expH,
+                        background: isActive ? "#e11d48" : "#fb7185",
+                      }}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex gap-4 mt-2">
+            <span className="flex items-center gap-1 text-[10px] text-gray-400">
+              <span className="w-2 h-2 rounded-sm bg-emerald-400 inline-block" />
+              Income
+            </span>
+            <span className="flex items-center gap-1 text-[10px] text-gray-400">
+              <span className="w-2 h-2 rounded-sm bg-rose-400 inline-block" />
+              Expense
+            </span>
+            <span className="text-[10px] text-gray-400 ml-auto">
+              Click a bar to expand that row
+            </span>
+          </div>
+        </Card>
+      )}
+
+      {/* ── Main table ── */}
+      <Card className="overflow-hidden">
+        <div
+          className={`p-4 border-b ${colors.bg} ${colors.border} border-b flex justify-between items-center`}
+        >
+          <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+            {React.createElement(periodCfg.icon, {
+              className: `w-4 h-4 ${colors.text}`,
+            })}
+            {periodCfg.label} Projection — {buckets.length} periods
+          </h3>
+          <Badge className={colors.badge}>{periodCfg.label}</Badge>
+        </div>
+
+        <div className="overflow-x-auto" style={{ maxHeight: 520 }}>
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-gray-50 sticky top-0 z-10">
+              <tr className="text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200">
+                <th className="p-4 w-5" />
+                <th className="p-4">Period</th>
+                <th className="p-4 text-right text-blue-700">Opening Bal</th>
+                {showIncome && (
+                  <th className="p-4 text-right text-emerald-700">Income</th>
+                )}
+                {showExpense && (
+                  <th className="p-4 text-right text-rose-700">Expense</th>
+                )}
+                {showNet && <th className="p-4 text-right">Net Flow</th>}
+                <th className={`p-4 text-right font-bold ${colors.text}`}>
+                  Closing Bal
+                </th>
+                <th className="p-4 text-center">Trend</th>
+              </tr>
+            </thead>
+
+            <tbody className="text-sm text-gray-700 divide-y divide-gray-100">
+              {buckets.length === 0 ? (
+                <tr>
+                  <td colSpan="8" className="p-10 text-center text-gray-400">
+                    <BarChart2 className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                    No projection data. Make sure invoices / payouts exist in
+                    your database.
+                  </td>
+                </tr>
+              ) : (
+                buckets.map((b, i) => {
+                  const isExpanded = expandedRow === i;
+                  const isGrowth = b.closingBalance >= b.openingBalance;
+                  const pct =
+                    b.openingBalance !== 0
+                      ? Math.abs(
+                          ((b.closingBalance - b.openingBalance) /
+                            Math.abs(b.openingBalance)) *
+                            100
+                        )
+                      : 0;
+
+                  return (
+                    <React.Fragment key={i}>
+                      <motion.tr
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: i * 0.02 }}
+                        onClick={() => setExpandedRow(isExpanded ? null : i)}
+                        className={`cursor-pointer transition-colors ${
+                          isExpanded ? colors.bg : "hover:bg-gray-50"
+                        }`}
+                        style={{ height: 52 }}
+                      >
+                        <td className="pl-4">
+                          <ChevronRight
+                            className={`w-4 h-4 text-gray-400 transition-transform ${
+                              isExpanded ? "rotate-90" : ""
+                            }`}
+                          />
+                        </td>
+
+                        <td className="p-4 font-medium text-gray-900">
+                          {b.label}
+                          {b.rowCount > 0 && (
+                            <span className="ml-2 text-[10px] text-gray-400">
+                              ({b.rowCount} days)
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="p-4 text-right font-mono text-blue-700">
+                          {fmtLakh(b.openingBalance)}
+                        </td>
+
+                        {showIncome && (
+                          <td className="p-4 text-right font-mono text-emerald-700">
+                            <span className="flex items-center justify-end gap-1">
+                              <ArrowUpRight className="w-3 h-3" />
+                              {fmtLakh(b.income)}
+                            </span>
+                          </td>
+                        )}
+
+                        {showExpense && (
+                          <td className="p-4 text-right font-mono text-rose-700">
+                            <span className="flex items-center justify-end gap-1">
+                              <ArrowDownLeft className="w-3 h-3" />
+                              {fmtLakh(b.expense)}
+                            </span>
+                          </td>
+                        )}
+
+                        {showNet && (
+                          <td
+                            className={`p-4 text-right font-mono font-semibold ${
+                              b.netFlow >= 0
+                                ? "text-emerald-600"
+                                : "text-rose-600"
+                            }`}
+                          >
+                            {b.netFlow >= 0 ? "+" : ""}
+                            {fmtLakh(b.netFlow)}
+                          </td>
+                        )}
+
+                        <td
+                          className={`p-4 text-right font-mono font-bold text-base ${colors.text}`}
+                        >
+                          {fmtLakh(b.closingBalance)}
+                        </td>
+
+                        <td className="p-4 text-center">
+                          <span
+                            className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              isGrowth
+                                ? "bg-emerald-100 text-emerald-700"
+                                : "bg-rose-100 text-rose-700"
+                            }`}
+                          >
+                            {isGrowth ? (
+                              <TrendingUp className="w-3 h-3" />
+                            ) : (
+                              <TrendingDown className="w-3 h-3" />
+                            )}
+                            {pct.toFixed(1)}%
+                          </span>
+                        </td>
+                      </motion.tr>
+
+                      {/* ── Expanded breakdown ── */}
+                      <AnimatePresence>
+                        {isExpanded && (
+                          <motion.tr
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                          >
+                            <td
+                              colSpan="8"
+                              className={`px-6 py-4 ${colors.bg} border-b ${colors.border}`}
+                            >
+                              <div className="grid grid-cols-2 gap-6">
+                                {/* Income breakdown */}
+                                {showIncome && (
+                                  <div>
+                                    <p className="text-xs font-bold text-emerald-700 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                                      <ArrowUpRight className="w-3.5 h-3.5" />{" "}
+                                      Income Breakdown
+                                    </p>
+                                    <div className="space-y-2">
+                                      {[
+                                        {
+                                          label: "Expected Receivables",
+                                          key: "expected_receivable",
+                                        },
+                                        {
+                                          label: "Advance Payments",
+                                          key: "advance_payment",
+                                        },
+                                      ].map(({ label, key }) => (
+                                        <div
+                                          key={key}
+                                          className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-emerald-100"
+                                        >
+                                          <span className="text-xs text-gray-600">
+                                            {label}
+                                          </span>
+                                          <span className="text-xs font-bold font-mono text-emerald-700">
+                                            {fmtFull(b.breakdown[key])}
+                                          </span>
+                                        </div>
+                                      ))}
+                                      <div className="flex items-center justify-between bg-emerald-100 rounded-lg px-3 py-2 border border-emerald-200">
+                                        <span className="text-xs font-bold text-emerald-900">
+                                          Total Income
+                                        </span>
+                                        <span className="text-sm font-extrabold font-mono text-emerald-800">
+                                          {fmtFull(b.income)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Expense breakdown */}
+                                {showExpense && (
+                                  <div>
+                                    <p className="text-xs font-bold text-rose-700 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                                      <ArrowDownLeft className="w-3.5 h-3.5" />{" "}
+                                      Expense Breakdown
+                                    </p>
+                                    <div className="space-y-2">
+                                      {[
+                                        {
+                                          label: "Salary Payout",
+                                          key: "salary_payout",
+                                        },
+                                        {
+                                          label: "Statutory Outflow",
+                                          key: "statutory_outflow",
+                                        },
+                                        {
+                                          label: "Other Expenses",
+                                          key: "other_expense",
+                                        },
+                                        {
+                                          label: "Petty Cash",
+                                          key: "petty_cash",
+                                        },
+                                        {
+                                          label: "Bounce Risk",
+                                          key: "bounce_risk",
+                                        },
+                                        {
+                                          label: "Bad Debt / CN",
+                                          key: "bad_debt_cn",
+                                        },
+                                      ].map(({ label, key }) => (
+                                        <div
+                                          key={key}
+                                          className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-rose-100"
+                                        >
+                                          <span className="text-xs text-gray-600">
+                                            {label}
+                                          </span>
+                                          <span className="text-xs font-bold font-mono text-rose-700">
+                                            {fmtFull(b.breakdown[key])}
+                                          </span>
+                                        </div>
+                                      ))}
+                                      <div className="flex items-center justify-between bg-rose-100 rounded-lg px-3 py-2 border border-rose-200">
+                                        <span className="text-xs font-bold text-rose-900">
+                                          Total Expense
+                                        </span>
+                                        <span className="text-sm font-extrabold font-mono text-rose-800">
+                                          {fmtFull(b.expense)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Balance movement bar */}
+                              <div className="mt-4 flex items-center gap-3 bg-white rounded-xl p-3 border border-gray-200">
+                                <div className="text-center flex-1">
+                                  <p className="text-[10px] text-gray-400 font-bold uppercase">
+                                    Opening
+                                  </p>
+                                  <p className="text-sm font-bold font-mono text-blue-700">
+                                    {fmtFull(b.openingBalance)}
+                                  </p>
+                                </div>
+                                <div
+                                  className={`text-center flex-1 px-2 py-1 rounded-lg ${
+                                    b.netFlow >= 0
+                                      ? "bg-emerald-50"
+                                      : "bg-rose-50"
+                                  }`}
+                                >
+                                  <p className="text-[10px] text-gray-400 font-bold uppercase">
+                                    Net Flow
+                                  </p>
+                                  <p
+                                    className={`text-sm font-bold font-mono ${
+                                      b.netFlow >= 0
+                                        ? "text-emerald-700"
+                                        : "text-rose-700"
+                                    }`}
+                                  >
+                                    {b.netFlow >= 0 ? "+" : ""}
+                                    {fmtFull(b.netFlow)}
+                                  </p>
+                                </div>
+                                <div className="text-center flex-1">
+                                  <p className="text-[10px] text-gray-400 font-bold uppercase">
+                                    Closing
+                                  </p>
+                                  <p
+                                    className={`text-sm font-bold font-mono ${colors.text}`}
+                                  >
+                                    {fmtFull(b.closingBalance)}
+                                  </p>
+                                </div>
+                              </div>
+                            </td>
+                          </motion.tr>
+                        )}
+                      </AnimatePresence>
+                    </React.Fragment>
+                  );
+                })
+              )}
+            </tbody>
+
+            {/* ── Grand totals footer ── */}
+            {buckets.length > 0 && (
+              <tfoot className="sticky bottom-0">
+                <tr className="bg-gray-900 text-white text-xs font-bold">
+                  <td />
+                  <td className="px-4 py-3 uppercase tracking-wider text-gray-300">
+                    Grand Total ({buckets.length} periods)
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono text-blue-300">
+                    {fmtLakh(buckets[0]?.openingBalance || 0)}
+                  </td>
+                  {showIncome && (
+                    <td className="px-4 py-3 text-right font-mono text-emerald-300">
+                      {fmtLakh(totalIncome)}
+                    </td>
+                  )}
+                  {showExpense && (
+                    <td className="px-4 py-3 text-right font-mono text-rose-300">
+                      {fmtLakh(totalExpense)}
+                    </td>
+                  )}
+                  {showNet && (
+                    <td
+                      className={`px-4 py-3 text-right font-mono ${
+                        totalNet >= 0 ? "text-emerald-300" : "text-rose-300"
+                      }`}
+                    >
+                      {totalNet >= 0 ? "+" : ""}
+                      {fmtLakh(totalNet)}
+                    </td>
+                  )}
+                  <td className="px-4 py-3 text-right font-mono text-base text-purple-300">
+                    {fmtLakh(buckets[buckets.length - 1]?.closingBalance || 0)}
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+};
+
+// ─── BANK TRANSFER MODAL ────────────────────────────────────────────────────────
 const BankTransferModal = ({
   isOpen,
   onClose,
@@ -83,15 +805,12 @@ const BankTransferModal = ({
       alert("Amount must be greater than 0");
       return;
     }
-    const senderBankRows = entries.filter(
-      (e) => e.bank_id === form.sender_bank_id
-    );
 
-    const currentBalance = senderBankRows.reduce((sum, e) => {
+    const senderRows = entries.filter((e) => e.bank_id === form.sender_bank_id);
+    const currentBalance = senderRows.reduce((sum, e) => {
       const amt = Number(e.amount || 0);
       return e.type === "debit" ? sum - amt : sum + amt;
     }, 0);
-
     if (parseFloat(form.amount) > currentBalance) {
       alert(
         `Insufficient Balance. Available: ₹${currentBalance.toLocaleString(
@@ -104,7 +823,6 @@ const BankTransferModal = ({
     setLoading(true);
     try {
       if (editData?.id) {
-        // ── EDIT: just update the transfer record ──
         const { error } = await supabase
           .from("bank_transfers")
           .update({
@@ -117,9 +835,6 @@ const BankTransferModal = ({
           .eq("id", editData.id);
         if (error) throw error;
       } else {
-        // ── NEW: insert transfer only — trg_bank_transfer handles bank_entries ──
-        const referenceNo = "TRF-" + Date.now();
-
         const { error } = await supabase
           .from("bank_transfers")
           .insert([
@@ -129,17 +844,12 @@ const BankTransferModal = ({
               sender_bank_id: form.sender_bank_id,
               receiver_bank_id: form.receiver_bank_id,
               remarks: form.remarks,
-              reference_no: referenceNo,
+              reference_no: "TRF-" + Date.now(),
             },
           ])
           .select()
           .single();
-
         if (error) throw error;
-        // trg_bank_transfer on bank_transfers automatically inserts:
-        //   • debit  bank_entry for sender
-        //   • credit bank_entry for receiver
-        // No manual bank_entries inserts needed here.
       }
       onSaved?.();
       onClose();
@@ -151,7 +861,6 @@ const BankTransferModal = ({
   };
 
   if (!isOpen) return null;
-
   return (
     <AnimatePresence>
       <motion.div
@@ -183,12 +892,11 @@ const BankTransferModal = ({
             </div>
             <button
               onClick={onClose}
-              className="text-white/70 hover:text-white transition"
+              className="text-white/70 hover:text-white"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
-
           <div className="p-5 space-y-4">
             <div>
               <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-1.5">
@@ -273,21 +981,20 @@ const BankTransferModal = ({
               />
             </div>
           </div>
-
           <div className="px-5 pb-5 flex gap-3">
             <button
               onClick={onClose}
-              className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition"
+              className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50"
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
               disabled={loading}
-              className="flex-1 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition disabled:opacity-60"
+              className="flex-1 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium disabled:opacity-60"
             >
               {loading
-                ? "Saving..."
+                ? "Saving…"
                 : editData
                 ? "Update Transfer"
                 : "Save Transfer"}
@@ -299,143 +1006,133 @@ const BankTransferModal = ({
   );
 };
 
-// ─── BANK TRANSFER HISTORY DRAWER ─────────────────────────────────────────────
+// ─── BANK TRANSFER HISTORY DRAWER ──────────────────────────────────────────────
 const BankTransferHistoryDrawer = ({
   isOpen,
   onClose,
   transfers,
   onEdit,
   onDelete,
-}) => {
-  const formatCurrency = (val = 0) =>
-    `₹ ${Number(val).toLocaleString("en-IN")}`;
-
-  return (
-    <AnimatePresence>
-      {isOpen && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 0.4 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black z-40"
-            onClick={onClose}
-          />
-          <motion.div
-            initial={{ x: "100%" }}
-            animate={{ x: 0 }}
-            exit={{ x: "100%" }}
-            transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className="fixed right-0 top-0 h-full w-full max-w-lg bg-white shadow-2xl z-50 flex flex-col"
-          >
-            <div className="bg-gradient-to-r from-indigo-600 to-blue-600 p-5 text-white flex justify-between items-center flex-shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-white/20 rounded-lg">
-                  <History className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-lg">Transfer History</h3>
-                  <p className="text-indigo-100 text-xs">
-                    {transfers.length} transfers found
-                  </p>
-                </div>
+}) => (
+  <AnimatePresence>
+    {isOpen && (
+      <>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 0.4 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black z-40"
+          onClick={onClose}
+        />
+        <motion.div
+          initial={{ x: "100%" }}
+          animate={{ x: 0 }}
+          exit={{ x: "100%" }}
+          transition={{ type: "spring", damping: 25, stiffness: 200 }}
+          className="fixed right-0 top-0 h-full w-full max-w-lg bg-white shadow-2xl z-50 flex flex-col"
+        >
+          <div className="bg-gradient-to-r from-indigo-600 to-blue-600 p-5 text-white flex justify-between items-center flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-white/20 rounded-lg">
+                <History className="w-5 h-5" />
               </div>
-              <button
-                onClick={onClose}
-                className="text-white/70 hover:text-white transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div>
+                <h3 className="font-bold text-lg">Transfer History</h3>
+                <p className="text-indigo-100 text-xs">
+                  {transfers.length} transfers found
+                </p>
+              </div>
             </div>
-
-            <div className="flex-1 overflow-y-auto p-5 space-y-3">
-              {transfers.length === 0 ? (
-                <div className="text-center text-gray-400 py-16">
-                  <ArrowLeftRight className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                  <p>No transfers recorded yet</p>
-                </div>
-              ) : (
-                transfers.map((t) => (
-                  <motion.div
-                    key={t.id}
-                    initial={{ opacity: 0, y: 5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm hover:shadow-md transition"
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <p className="text-xs text-gray-400 mb-1">
-                          {t.transfer_date
-                            ? new Date(t.transfer_date).toLocaleDateString(
-                                "en-GB",
-                                {
-                                  day: "2-digit",
-                                  month: "short",
-                                  year: "numeric",
-                                }
-                              )
-                            : "-"}
-                        </p>
-                        <p className="font-bold text-lg text-gray-900">
-                          {formatCurrency(t.amount)}
-                        </p>
-                        {t.reference_no && (
-                          <p className="text-xs text-gray-400 font-mono mt-0.5">
-                            {t.reference_no}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => onEdit(t)}
-                          className="p-1.5 hover:bg-indigo-50 rounded-lg text-gray-400 hover:text-indigo-600 transition"
-                          title="Edit"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => onDelete(t.id)}
-                          className="p-1.5 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-600 transition"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-3">
-                      <div className="flex-1 text-center">
-                        <p className="text-xs text-gray-400 mb-1">From</p>
-                        <div className="bg-rose-100 text-rose-700 rounded-lg px-2 py-1.5 text-xs font-semibold">
-                          {t.sender_bank_name || "—"}
-                        </div>
-                      </div>
-                      <div className="flex-shrink-0">
-                        <ArrowLeftRight className="w-4 h-4 text-gray-400" />
-                      </div>
-                      <div className="flex-1 text-center">
-                        <p className="text-xs text-gray-400 mb-1">To</p>
-                        <div className="bg-emerald-100 text-emerald-700 rounded-lg px-2 py-1.5 text-xs font-semibold">
-                          {t.receiver_bank_name || "—"}
-                        </div>
-                      </div>
-                    </div>
-                    {t.remarks && (
-                      <p className="text-xs text-gray-500 mt-2 pl-1">
-                        💬 {t.remarks}
+            <button
+              onClick={onClose}
+              className="text-white/70 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-5 space-y-3">
+            {transfers.length === 0 ? (
+              <div className="text-center text-gray-400 py-16">
+                <ArrowLeftRight className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                <p>No transfers recorded yet</p>
+              </div>
+            ) : (
+              transfers.map((t) => (
+                <motion.div
+                  key={t.id}
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm hover:shadow-md transition"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <p className="text-xs text-gray-400 mb-1">
+                        {t.transfer_date
+                          ? new Date(t.transfer_date).toLocaleDateString(
+                              "en-GB",
+                              {
+                                day: "2-digit",
+                                month: "short",
+                                year: "numeric",
+                              }
+                            )
+                          : "-"}
                       </p>
-                    )}
-                  </motion.div>
-                ))
-              )}
-            </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
-  );
-};
+                      <p className="font-bold text-lg text-gray-900">
+                        ₹ {Number(t.amount).toLocaleString("en-IN")}
+                      </p>
+                      {t.reference_no && (
+                        <p className="text-xs text-gray-400 font-mono mt-0.5">
+                          {t.reference_no}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => onEdit(t)}
+                        className="p-1.5 hover:bg-indigo-50 rounded-lg text-gray-400 hover:text-indigo-600"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => onDelete(t.id)}
+                        className="p-1.5 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-600"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-3">
+                    <div className="flex-1 text-center">
+                      <p className="text-xs text-gray-400 mb-1">From</p>
+                      <div className="bg-rose-100 text-rose-700 rounded-lg px-2 py-1.5 text-xs font-semibold">
+                        {t.sender_bank_name || "—"}
+                      </div>
+                    </div>
+                    <ArrowLeftRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                    <div className="flex-1 text-center">
+                      <p className="text-xs text-gray-400 mb-1">To</p>
+                      <div className="bg-emerald-100 text-emerald-700 rounded-lg px-2 py-1.5 text-xs font-semibold">
+                        {t.receiver_bank_name || "—"}
+                      </div>
+                    </div>
+                  </div>
+                  {t.remarks && (
+                    <p className="text-xs text-gray-500 mt-2 pl-1">
+                      💬 {t.remarks}
+                    </p>
+                  )}
+                </motion.div>
+              ))
+            )}
+          </div>
+        </motion.div>
+      </>
+    )}
+  </AnimatePresence>
+);
 
-// ─── MAIN BANKRECO COMPONENT ───────────────────────────────────────────────────
+// ─── MAIN BANKRECO COMPONENT ────────────────────────────────────────────────────
 const BankReco = () => {
   const [bankData, setBankData] = useState([]);
   const [fundFlowData, setFundFlowData] = useState([]);
@@ -451,13 +1148,11 @@ const BankReco = () => {
   const [selectedBank, setSelectedBank] = useState(null);
   const [remainingBalance, setRemainingBalance] = useState(0);
   const [showEntryModal, setShowEntryModal] = useState(false);
-
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showTransferHistory, setShowTransferHistory] = useState(false);
   const [transfers, setTransfers] = useState([]);
   const [interestPenalties, setInterestPenalties] = useState([]);
   const [editTransfer, setEditTransfer] = useState(null);
-
   const [newEntry, setNewEntry] = useState({
     entity: "",
     bank_id: "",
@@ -468,14 +1163,13 @@ const BankReco = () => {
     transaction_mode: "credit",
   });
 
-  // ─── FETCH FUNCTIONS ──────────────────────────────────────────────────────
-
+  // ─── FETCH ─────────────────────────────────────────────────────────────────
   const fetchBanks = async () => {
     const { data, error } = await supabase
       .from("bank_master")
       .select("*")
       .order("created_at", { ascending: false });
-    if (!error) setBanks(data);
+    if (!error) setBanks(data || []);
   };
 
   const fetchEntries = async () => {
@@ -483,27 +1177,19 @@ const BankReco = () => {
       .from("bank_entries")
       .select("*, bank_master(bank_name)")
       .order("date", { ascending: false });
-
     if (!error) {
-      const uniqueEntries = [];
       const seen = new Set();
-
-      (data || []).forEach((entry) => {
-        const uniqueKey = `
-            ${entry.reference_no || ""}
-            -${entry.bank_id || ""}
-            -${entry.amount || ""}
-            -${entry.date || ""}
-            -${entry.entry_type || ""}
-          `;
-
-        if (!seen.has(uniqueKey)) {
-          seen.add(uniqueKey);
-          uniqueEntries.push(entry);
+      const unique = [];
+      (data || []).forEach((e) => {
+        const key = `${e.reference_no || ""}-${e.bank_id || ""}-${
+          e.amount || ""
+        }-${e.date || ""}-${e.entry_type || ""}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          unique.push(e);
         }
       });
-
-      setEntries(uniqueEntries);
+      setEntries(unique);
     }
   };
 
@@ -512,16 +1198,14 @@ const BankReco = () => {
       .from("software_entries")
       .select("*")
       .order("date", { ascending: false });
-    if (!error) setSoftwareEntries(data);
+    if (!error) setSoftwareEntries(data || []);
   };
 
   const fetchOutstandingInvoices = async () => {
     const { data, error } = await supabase
       .from("outstanding_invoice_view")
       .select("*");
-    if (!error) {
-      setOutstandingInvoices(data || []);
-    }
+    if (!error) setOutstandingInvoices(data || []);
   };
 
   const fetchTransfers = async () => {
@@ -535,19 +1219,13 @@ const BankReco = () => {
   const fetchInterestPenalties = async () => {
     const { data, error } = await supabase
       .from("interest_penalties")
-      .select(
-        `
-        *,
-        bank_master(bank_name)
-      `
-      )
+      .select("*, bank_master(bank_name)")
       .order("entry_date", { ascending: false });
-
-    if (!error) {
-      setInterestPenalties(data || []);
-    }
+    if (!error) setInterestPenalties(data || []);
   };
 
+  // KEY FIX: fetch ALL daily rows from master_cashflow_view
+  // The SQL view now returns one row per day, each with its own breakdown columns.
   const fetchFundFlowProjection = async () => {
     const { data, error } = await supabase
       .from("master_cashflow_view")
@@ -576,63 +1254,56 @@ const BankReco = () => {
       console.error("Fund Flow Error:", error);
       return;
     }
+
+    // Coerce all numeric fields so breakdown math never hits NaN
     setFundFlowData(
       (data || []).map((row) => ({
         ...row,
+        opening_balance: Number(row.opening_balance || 0),
+        expected_receivable: Number(row.expected_receivable || 0),
+        advance_payment: Number(row.advance_payment || 0),
+        salary_payout: Number(row.salary_payout || 0),
+        statutory_outflow: Number(row.statutory_outflow || 0),
+        other_expense: Number(row.other_expense || 0),
+        petty_cash: Number(row.petty_cash || 0),
+        bounce_risk: Number(row.bounce_risk || 0),
+        bad_debt_cn: Number(row.bad_debt_cn || 0),
         projected_income: Number(row.projected_income || 0),
         projected_expense: Number(row.projected_expense || 0),
         net_flow: Number(row.net_flow || 0),
         projected_closing_balance: Number(row.projected_closing_balance || 0),
-        opening_balance: Number(row.opening_balance || 0),
       }))
     );
   };
 
   const calculateSoftwareBalance = async (bankId) => {
-    const { data: received } = await supabase
-      .from("payments_received")
-      .select("*")
-      .eq("bank_id", bankId);
-
-    const { data: made } = await supabase
-      .from("payments_made")
-      .select("*")
-      .eq("bank_id", bankId);
-
-    const { data: expenses } = await supabase
-      .from("expenses")
-      .select("*")
-      .eq("bank_id", bankId);
-
-    let credit = 0;
-    let debit = 0;
-
-    received?.forEach((r) => {
+    const [{ data: received }, { data: made }, { data: expenses }] =
+      await Promise.all([
+        supabase.from("payments_received").select("*").eq("bank_id", bankId),
+        supabase.from("payments_made").select("*").eq("bank_id", bankId),
+        supabase.from("expenses").select("*").eq("bank_id", bankId),
+      ]);
+    let credit = 0,
+      debit = 0;
+    (received || []).forEach((r) => {
       credit += Number(r.amount_received || 0);
     });
-
-    made?.forEach((m) => {
+    (made || []).forEach((m) => {
       debit += Number(m.transfer_amount || m.amount || 0);
     });
-
-    expenses?.forEach((e) => {
+    (expenses || []).forEach((e) => {
       debit += Number(e.amount || 0);
     });
-
     return credit - debit;
   };
 
-  // ─── BUILD BANK RECO DATA ─────────────────────────────────────────────────
-
+  // ─── BUILD RECO DATA ────────────────────────────────────────────────────────
   const buildBankRecoData = async () => {
     const grouped = {};
-
     entries.forEach((entry) => {
       if (!entry.bank_id) return;
-
       const month = new Date(entry.date).toISOString().slice(0, 7);
       const key = `${month}-${entry.bank_id}`;
-
       if (!grouped[key]) {
         grouped[key] = {
           id: key,
@@ -647,14 +1318,10 @@ const BankReco = () => {
           manualEntries: [],
         };
       }
-
       const amt = Number(entry.amount || 0);
-
-      if (String(entry.type).toLowerCase() === "debit") {
+      if (String(entry.type).toLowerCase() === "debit")
         grouped[key].asPerBankTotalBal -= Math.abs(amt);
-      } else {
-        grouped[key].asPerBankTotalBal += Math.abs(amt);
-      }
+      else grouped[key].asPerBankTotalBal += Math.abs(amt);
 
       const flowType =
         entry.flow_type ||
@@ -662,7 +1329,6 @@ const BankReco = () => {
         entry.payment_type ||
         entry.expense_type ||
         "";
-
       grouped[key].manualEntries.push({
         date: entry.date,
         entity: entry.entity || "Verto India Pvt Ltd",
@@ -705,39 +1371,31 @@ const BankReco = () => {
     const sortedRows = Object.values(grouped).sort(
       (a, b) => new Date(a.month) - new Date(b.month)
     );
-
-    const runningBankBalances = {};
-    const runningSoftwareBalances = {};
+    const runningBank = {},
+      runningSw = {};
 
     const finalData = await Promise.all(
       sortedRows.map(async (row) => {
-        const bankId = row.bank_id;
+        const { bank_id } = row;
+        const prevBank = runningBank[bank_id] || 0;
+        const prevSw = runningSw[bank_id] || 0;
+        const swMove = await calculateSoftwareBalance(bank_id);
 
-        const previousBankBalance = runningBankBalances[bankId] || 0;
-        const previousSoftwareBalance = runningSoftwareBalances[bankId] || 0;
-
-        const currentSoftwareMovement = await calculateSoftwareBalance(bankId);
-        const currentBankMovement = row.asPerBankTotalBal;
-
-        row.asPerBankTotalBal = previousBankBalance + currentBankMovement;
-        row.asPerSwTotalBal = previousSoftwareBalance + currentSoftwareMovement;
-
-        runningBankBalances[bankId] = row.asPerBankTotalBal;
-        runningSoftwareBalances[bankId] = row.asPerSwTotalBal;
-
+        row.asPerBankTotalBal = prevBank + row.asPerBankTotalBal;
+        row.asPerSwTotalBal = prevSw + swMove;
+        runningBank[bank_id] = row.asPerBankTotalBal;
+        runningSw[bank_id] = row.asPerSwTotalBal;
         row.difference = row.asPerBankTotalBal - row.asPerSwTotalBal;
         row.remainingBalance = Math.abs(row.difference);
-        row.status = row.difference < 50000 ? "reconciled" : "pending";
-
+        row.status =
+          Math.abs(row.difference) < 50000 ? "reconciled" : "pending";
         return row;
       })
     );
-
     setBankData(finalData.reverse());
   };
 
-  // ─── EFFECTS ──────────────────────────────────────────────────────────────
-
+  // ─── EFFECTS ───────────────────────────────────────────────────────────────
   useEffect(() => {
     fetchBanks();
     fetchEntries();
@@ -755,7 +1413,7 @@ const BankReco = () => {
   }, [entries, softwareEntries, outstandingInvoices]);
 
   useEffect(() => {
-    const channel = supabase
+    const ch = supabase
       .channel("realtime-bank")
       .on(
         "postgres_changes",
@@ -763,11 +1421,10 @@ const BankReco = () => {
         () => fetchEntries()
       )
       .subscribe();
-    return () => supabase.removeChannel(channel);
+    return () => supabase.removeChannel(ch);
   }, []);
-
   useEffect(() => {
-    const channel = supabase
+    const ch = supabase
       .channel("bank-master-live")
       .on(
         "postgres_changes",
@@ -775,11 +1432,10 @@ const BankReco = () => {
         () => fetchBanks()
       )
       .subscribe();
-    return () => supabase.removeChannel(channel);
+    return () => supabase.removeChannel(ch);
   }, []);
-
   useEffect(() => {
-    const channel = supabase
+    const ch = supabase
       .channel("bank-transfers-live")
       .on(
         "postgres_changes",
@@ -787,39 +1443,56 @@ const BankReco = () => {
         () => fetchTransfers()
       )
       .subscribe();
-    return () => supabase.removeChannel(channel);
+    return () => supabase.removeChannel(ch);
   }, []);
-
   useEffect(() => {
-    const channel = supabase
+    const ch = supabase
       .channel("payments-expenses-live")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "payments_made" },
-        () => fetchEntries()
+        () => {
+          fetchEntries();
+          fetchFundFlowProjection();
+        }
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "expenses" },
-        () => fetchEntries()
+        () => {
+          fetchEntries();
+          fetchFundFlowProjection();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "payments_received" },
+        () => fetchFundFlowProjection()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "employee_expense_payouts" },
+        () => fetchFundFlowProjection()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "statutory_payments" },
+        () => fetchFundFlowProjection()
       )
       .subscribe();
-    return () => supabase.removeChannel(channel);
+    return () => supabase.removeChannel(ch);
   }, []);
 
   window.refreshBanks = fetchBanks;
 
-  // ─── HELPERS ──────────────────────────────────────────────────────────────
-
+  // ─── HELPERS ───────────────────────────────────────────────────────────────
   const formatCurrency = (val = 0) => `₹ ${(Number(val) / 100000).toFixed(2)}L`;
   const formatCurrencyFull = (val = 0) =>
     `₹ ${Number(val).toLocaleString("en-IN")}`;
 
-  // ─── TRANSFER HANDLERS ────────────────────────────────────────────────────
-
+  // ─── TRANSFER HANDLERS ─────────────────────────────────────────────────────
   const handleDeleteTransfer = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this transfer?"))
-      return;
+    if (!window.confirm("Delete this transfer?")) return;
     const { error } = await supabase
       .from("bank_transfers")
       .delete()
@@ -827,21 +1500,19 @@ const BankReco = () => {
     if (error) alert(error.message);
     else fetchTransfers();
   };
-
-  const handleEditTransfer = (transfer) => {
-    setEditTransfer(transfer);
+  const handleEditTransfer = (t) => {
+    setEditTransfer(t);
     setShowTransferModal(true);
   };
 
-  // ─── FILTERED / SORTED BANK DATA ──────────────────────────────────────────
-
+  // ─── FILTERED DATA ─────────────────────────────────────────────────────────
   const filteredData = bankData
     .filter((row) => {
-      const matchesSearch = row.month
+      const matchSearch = row.month
         .toLowerCase()
         .includes(searchTerm.toLowerCase());
-      const matchesMonth = monthFilter === "All" || row.month === monthFilter;
-      return matchesSearch && matchesMonth;
+      const matchMonth = monthFilter === "All" || row.month === monthFilter;
+      return matchSearch && matchMonth;
     })
     .sort((a, b) => {
       if (sortType === "highDiff")
@@ -851,38 +1522,17 @@ const BankReco = () => {
       return 0;
     });
 
-  // ─── ADD BANK ENTRY ───────────────────────────────────────────────────────
-
+  // ─── ADD ENTRY ─────────────────────────────────────────────────────────────
   const handleAddEntry = async () => {
     if (!newEntry.bank_id || !newEntry.amount || !newEntry.dateOfBankBal) {
       alert("Fill all required fields");
       return;
     }
-
     const enteredAmount = parseFloat(newEntry.amount || 0);
-
-    if (newEntry.transaction_mode === "total_update") {
-      const bankEntries = entries.filter(
-        (e) => String(e.bank_id) === String(newEntry.bank_id)
-      );
-
-      const currentBalance = bankEntries.reduce((sum, e) => {
-        const amt = Number(e.amount || 0);
-        return e.type === "debit" ? sum - amt : sum + amt;
-      }, 0);
-
-      const adjustment = enteredAmount - currentBalance;
-
-      newEntry.amount = Math.abs(adjustment);
-      newEntry.transaction_mode = adjustment >= 0 ? "credit" : "debit";
-      newEntry.entry_type = "bank_balance_adjustment";
-    }
-
     if (enteredAmount <= 0) {
       alert("Amount must be greater than 0");
       return;
     }
-
     if (!selectedRow) {
       alert("No month selected. Please select a row first.");
       return;
@@ -891,7 +1541,6 @@ const BankReco = () => {
     const currentRemaining =
       (selectedRow?.asPerBankTotalBal || 0) -
       (selectedRow?.asPerSwTotalBal || 0);
-
     if (enteredAmount > Math.abs(currentRemaining)) {
       alert(
         `Cannot enter more than remaining balance ₹${Math.abs(
@@ -904,23 +1553,18 @@ const BankReco = () => {
     let finalAmount = enteredAmount;
     let finalType = newEntry.transaction_mode || "credit";
     let finalEntryType = newEntry.entry_type || "manual_adjustment";
-
-    if (!newEntry.entry_type || newEntry.entry_type === "other") {
+    if (!newEntry.entry_type || newEntry.entry_type === "other")
       finalEntryType = "manual_adjustment";
-    }
 
     if (newEntry.transaction_mode === "total_update") {
       const bankEntries = entries.filter(
         (e) => String(e.bank_id) === String(newEntry.bank_id)
       );
-
       const currentBalance = bankEntries.reduce((sum, e) => {
         const amt = Math.abs(Number(e.amount || 0));
         return String(e.type).toLowerCase() === "debit" ? sum - amt : sum + amt;
       }, 0);
-
       const adjustment = enteredAmount - currentBalance;
-
       finalAmount = Math.abs(adjustment);
       finalType = adjustment >= 0 ? "credit" : "debit";
       finalEntryType = "bank_balance_adjustment";
@@ -938,7 +1582,6 @@ const BankReco = () => {
         reference_no: "BNK-" + Date.now(),
       },
     ]);
-
     if (error) {
       alert(error.message);
       return;
@@ -953,11 +1596,9 @@ const BankReco = () => {
       remarks: "",
       entry_type: "other",
     });
-
     await fetchEntries();
     await fetchSoftwareEntries();
     await fetchFundFlowProjection();
-
     setTimeout(() => {
       const updated = bankData.find((r) => r.id === selectedRow?.id);
       if (updated) {
@@ -967,12 +1608,10 @@ const BankReco = () => {
         );
       }
     }, 300);
-
     window.refreshDashboard?.();
   };
 
-  // ─── RENDER ───────────────────────────────────────────────────────────────
-
+  // ─── RENDER ────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4 pb-6">
       <BankTransferModal
@@ -992,7 +1631,6 @@ const BankReco = () => {
           setEditTransfer(null);
         }}
       />
-
       <BankTransferHistoryDrawer
         isOpen={showTransferHistory}
         onClose={() => setShowTransferHistory(false)}
@@ -1001,7 +1639,7 @@ const BankReco = () => {
         onDelete={handleDeleteTransfer}
       />
 
-      {/* ── Filter Bar ── */}
+      {/* ── Filter bar ── */}
       <Card className="p-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center space-x-4">
@@ -1027,7 +1665,6 @@ const BankReco = () => {
                 Fund Flow Projection
               </button>
             </div>
-
             {activeView === "reco" && (
               <>
                 <div className="relative">
@@ -1036,7 +1673,7 @@ const BankReco = () => {
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Search month..."
+                    placeholder="Search month…"
                     className="w-48 bg-gray-50 border border-gray-200 text-gray-900 pl-10 pr-4 py-2 rounded-lg text-sm focus:outline-none focus:border-blue-500"
                   />
                 </div>
@@ -1052,7 +1689,6 @@ const BankReco = () => {
               </>
             )}
           </div>
-
           <Button
             onClick={() => {
               const csv = bankData
@@ -1078,11 +1714,13 @@ const BankReco = () => {
         </div>
       </Card>
 
-      {/* ── Main Content ── */}
-      <div className="flex gap-4">
-        {/* LEFT: Table */}
-        <div className="flex-1 space-y-4">
-          {activeView === "reco" ? (
+      {/* ── Main content ── */}
+      {activeView === "projection" ? (
+        <FundFlowProjectionPanel fundFlowData={fundFlowData} />
+      ) : (
+        <div className="flex gap-4">
+          {/* LEFT: Reco table */}
+          <div className="flex-1 space-y-4">
             <Card className="overflow-hidden">
               <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
                 <h3 className="font-semibold text-gray-900 flex items-center">
@@ -1102,10 +1740,9 @@ const BankReco = () => {
                   </Badge>
                 </div>
               </div>
-
               <div
                 className="overflow-x-auto"
-                style={{ minHeight: "400px", maxHeight: "500px" }}
+                style={{ minHeight: 400, maxHeight: 500 }}
               >
                 <table className="w-full text-left border-collapse">
                   <thead className="bg-gray-50 sticky top-0 z-10">
@@ -1143,7 +1780,7 @@ const BankReco = () => {
                           className={`hover:bg-blue-50 cursor-pointer transition-colors ${
                             selectedRow?.id === row.id ? "bg-blue-50" : ""
                           }`}
-                          style={{ height: "56px" }}
+                          style={{ height: 56 }}
                         >
                           <td className="p-4 font-medium text-gray-900">
                             {row.month}
@@ -1206,42 +1843,41 @@ const BankReco = () => {
                             >
                               <td colSpan="8" className="bg-blue-50 p-4">
                                 <div className="grid grid-cols-3 gap-4 mb-4">
-                                  <div className="bg-white p-3 rounded-lg shadow">
-                                    <p className="text-xs text-gray-500">
-                                      Bank Balance
-                                    </p>
-                                    <p className="font-mono text-blue-700 font-bold">
-                                      {formatCurrencyFull(
-                                        row.asPerBankTotalBal
-                                      )}
-                                    </p>
-                                  </div>
-                                  <div className="bg-white p-3 rounded-lg shadow">
-                                    <p className="text-xs text-gray-500">
-                                      Software Balance
-                                    </p>
-                                    <p className="font-mono text-emerald-700 font-bold">
-                                      {formatCurrencyFull(row.asPerSwTotalBal)}
-                                    </p>
-                                  </div>
-                                  <div className="bg-white p-3 rounded-lg shadow">
-                                    <p className="text-xs text-gray-500">
-                                      Difference
-                                    </p>
-                                    <p
-                                      className={`font-mono font-bold ${
+                                  {[
+                                    {
+                                      label: "Bank Balance",
+                                      value: row.asPerBankTotalBal,
+                                      cls: "text-blue-700",
+                                    },
+                                    {
+                                      label: "Software Balance",
+                                      value: row.asPerSwTotalBal,
+                                      cls: "text-emerald-700",
+                                    },
+                                    {
+                                      label: "Difference",
+                                      value: Math.abs(row.difference),
+                                      cls:
                                         Math.abs(row.difference) < 50000
                                           ? "text-emerald-600"
-                                          : "text-rose-600"
-                                      }`}
+                                          : "text-rose-600",
+                                    },
+                                  ].map(({ label, value, cls }) => (
+                                    <div
+                                      key={label}
+                                      className="bg-white p-3 rounded-lg shadow"
                                     >
-                                      {formatCurrencyFull(
-                                        Math.abs(row.difference)
-                                      )}
-                                    </p>
-                                  </div>
+                                      <p className="text-xs text-gray-500">
+                                        {label}
+                                      </p>
+                                      <p
+                                        className={`font-mono font-bold ${cls}`}
+                                      >
+                                        {formatCurrencyFull(value)}
+                                      </p>
+                                    </div>
+                                  ))}
                                 </div>
-
                                 {row.manualEntries.length > 0 && (
                                   <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
                                     <table className="w-full text-xs">
@@ -1297,14 +1933,10 @@ const BankReco = () => {
                                                 ) : (
                                                   <ArrowUpRight className="w-3 h-3" />
                                                 )}
-                                                <span>
-                                                  {entry.amount >= 0
-                                                    ? "+"
-                                                    : "-"}
-                                                  {formatCurrencyFull(
-                                                    Math.abs(entry.amount)
-                                                  )}
-                                                </span>
+                                                {entry.amount >= 0 ? "+" : "-"}
+                                                {formatCurrencyFull(
+                                                  Math.abs(entry.amount)
+                                                )}
                                               </div>
                                             </td>
                                           </tr>
@@ -1323,509 +1955,309 @@ const BankReco = () => {
                 </table>
               </div>
             </Card>
-          ) : (
-            <Card className="overflow-hidden">
-              <div className="p-4 border-b border-gray-100 bg-purple-50/50 flex justify-between items-center">
-                <h3 className="font-semibold text-gray-900 flex items-center">
-                  <TrendingUp className="w-4 h-4 mr-2 text-purple-600" />
-                  Fund Flow Projection (5B) — Next 6 Months
-                </h3>
-                <Badge className="bg-purple-100 text-purple-700">
-                  Projected
-                </Badge>
-              </div>
+          </div>
 
-              <div className="overflow-x-auto" style={{ minHeight: "400px" }}>
-                <table className="w-full text-left border-collapse">
-                  <thead className="bg-gray-50 sticky top-0 z-10">
-                    <tr className="text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200">
-                      <th className="p-4">Month</th>
-                      <th className="p-4 text-right text-blue-700">
-                        Opening Bal
-                      </th>
-                      <th className="p-4 text-right text-emerald-700">
-                        Projected Income
-                      </th>
-                      <th className="p-4 text-right text-rose-700">
-                        Projected Expense
-                      </th>
-                      <th className="p-4 text-right">Net Flow</th>
-                      <th className="p-4 text-right text-purple-700 bg-purple-50 font-bold">
-                        Projected Closing Bal
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-sm text-gray-700 divide-y divide-gray-100">
-                    {fundFlowData.length === 0 ? (
-                      <tr>
-                        <td
-                          colSpan="6"
-                          className="p-8 text-center text-gray-400"
-                        >
-                          No projection data found. Check if invoices exist.
-                        </td>
-                      </tr>
-                    ) : (
-                      fundFlowData.map((row, index) => {
-                        const income = Number(row.projected_income ?? 0);
-                        const expense = Number(row.projected_expense ?? 0);
-                        const netFlow = Number(row.net_flow ?? 0);
-                        const openingBal = Number(row.opening_balance ?? 0);
-                        const closingBal = Number(
-                          row.projected_closing_balance ?? 0
-                        );
-
-                        const isCurrentMonth = row.full_date
-                          ? new Date(row.full_date)
-                              .toISOString()
-                              .slice(0, 7) ===
-                            new Date().toISOString().slice(0, 7)
-                          : false;
-
-                        return (
-                          <motion.tr
-                            key={`${row.month}-${index}`}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            transition={{ delay: index * 0.04 }}
-                            className={`hover:bg-purple-50 ${
-                              isCurrentMonth
-                                ? "bg-purple-50/60 font-medium"
-                                : ""
-                            }`}
-                            style={{ height: "56px" }}
-                          >
-                            <td className="p-4 font-medium text-gray-900">
-                              <div className="flex items-center gap-2">
-                                {row.month}
-                                {isCurrentMonth && (
-                                  <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-semibold"></span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="p-4 text-right font-mono text-blue-700">
-                              {formatCurrency(openingBal)}
-                            </td>
-                            <td className="p-4 text-right font-mono text-emerald-700">
-                              <span className="flex items-center justify-end">
-                                <ArrowUpRight className="w-4 h-4 mr-1" />
-                                {formatCurrency(income)}
-                              </span>
-                            </td>
-                            <td className="p-4 text-right font-mono text-rose-700">
-                              <span className="flex items-center justify-end">
-                                <ArrowDownLeft className="w-4 h-4 mr-1" />
-                                {formatCurrency(expense)}
-                              </span>
-                            </td>
-                            <td
-                              className={`p-4 text-right font-mono font-medium ${
-                                netFlow >= 0
-                                  ? "text-emerald-600"
-                                  : "text-rose-600"
-                              }`}
-                            >
-                              {netFlow >= 0 ? "+" : ""}
-                              {formatCurrency(netFlow)}
-                            </td>
-                            <td className="p-4 text-right font-mono font-bold text-purple-700 bg-purple-50/50 text-base">
-                              {formatCurrency(closingBal)}
-                            </td>
-                          </motion.tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          )}
-        </div>
-
-        {/* RIGHT: Side Panel */}
-        <div className="w-80 shrink-0 space-y-4">
-          <AnimatePresence mode="wait">
-            {activeView === "reco" && selectedRow ? (
-              <motion.div
-                key="detail"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
-              >
-                <Card className="border-blue-200 shadow-lg overflow-hidden">
-                  <div className="p-4 bg-gradient-to-r from-blue-600 to-indigo-700 text-white">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="font-bold text-lg">
-                          Bank Reconciliation
-                        </h3>
-                        <p className="text-blue-100 text-sm">
-                          {selectedRow.month} •{" "}
-                          {selectedRow.date
-                            ? new Date(selectedRow.date).toLocaleDateString(
-                                "en-GB"
-                              )
-                            : "-"}
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => setSelectedRow(null)}
-                        className="text-blue-200 hover:text-white"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="p-4 space-y-4 max-h-[calc(100vh-250px)] overflow-y-auto">
-                    <h4 className="text-xs font-bold text-gray-400 uppercase flex items-center">
-                      <Wallet className="w-3 h-3 mr-1" /> Balance Comparison
-                    </h4>
-                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                      <p className="text-sm text-blue-700 font-medium mb-1">
-                        As Per Bank
-                      </p>
-                      <p className="text-xl font-bold font-mono text-blue-700">
-                        {formatCurrencyFull(selectedRow.asPerBankTotalBal)}
-                      </p>
-                      <p className="text-xs text-blue-500 mt-1">
-                        Manual entry from bank statement
-                      </p>
-                    </div>
-                    <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
-                      <p className="text-sm text-emerald-700 font-medium mb-1">
-                        As Per Software
-                      </p>
-                      <p className="text-xl font-bold font-mono text-emerald-700">
-                        {formatCurrencyFull(selectedRow.asPerSwTotalBal)}
-                      </p>
-                      <p className="text-xs text-emerald-500 mt-1">
-                        Auto-fetched from software entries
-                      </p>
-                    </div>
-                    <div
-                      className={`p-4 rounded-xl border ${
-                        Math.abs(selectedRow.difference) < 50000
-                          ? "bg-emerald-50 border-emerald-200"
-                          : "bg-rose-50 border-rose-200"
-                      }`}
-                    >
-                      <div className="flex justify-between items-center">
-                        <span
-                          className={`text-sm font-bold ${
-                            Math.abs(selectedRow.difference) < 50000
-                              ? "text-emerald-800"
-                              : "text-rose-800"
-                          }`}
-                        >
-                          Difference
-                        </span>
-                        <span
-                          className={`text-2xl font-bold font-mono ${
-                            Math.abs(selectedRow.difference) < 50000
-                              ? "text-emerald-700"
-                              : "text-rose-700"
-                          }`}
-                        >
-                          {selectedRow.difference > 0 ? "+" : ""}
-                          {formatCurrencyFull(Math.abs(selectedRow.difference))}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex space-x-2 pt-2">
-                      <Button className="flex-1" variant="outline" size="sm">
-                        <Download className="w-4 h-4 mr-2" />
-                        Download
-                      </Button>
-                      {selectedRow.status !== "reconciled" && (
-                        <Button
-                          className="flex-1 bg-emerald-600 hover:bg-emerald-700"
-                          size="sm"
-                        >
-                          <CheckCircle2 className="w-4 h-4 mr-2" />
-                          Reconcile
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </Card>
-              </motion.div>
-            ) : (
-              <>
-                {activeView === "reco" ? (
-                  <>
-                    <Card className="p-4">
-                      <h4 className="text-sm font-semibold text-gray-900 mb-4">
-                        Reconciliation Status
-                      </h4>
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center">
-                            <div className="w-3 h-3 rounded-full bg-emerald-500 mr-2" />
-                            <span className="text-sm text-gray-600">
-                              Reconciled
-                            </span>
-                          </div>
-                          <span className="font-mono font-medium text-emerald-600">
-                            {
-                              bankData.filter((d) => d.status === "reconciled")
-                                .length
-                            }
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center">
-                            <div className="w-3 h-3 rounded-full bg-amber-500 mr-2" />
-                            <span className="text-sm text-gray-600">
-                              Pending
-                            </span>
-                          </div>
-                          <span className="font-mono font-medium text-amber-600">
-                            {
-                              bankData.filter((d) => d.status === "pending")
-                                .length
-                            }
-                          </span>
-                        </div>
-                        <div className="h-px bg-gray-200 my-2" />
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm text-gray-500">
-                            Total Bank Balance
-                          </span>
-                          <span className="font-mono font-medium text-blue-600">
-                            {(() => {
-                              const latestBalances = {};
-                              bankData.forEach((row) => {
-                                const existing = latestBalances[row.bank_id];
-                                if (
-                                  !existing ||
-                                  new Date(row.date) > new Date(existing.date)
-                                ) {
-                                  latestBalances[row.bank_id] = row;
-                                }
-                              });
-                              return formatCurrency(
-                                Object.values(latestBalances).reduce(
-                                  (sum, row) =>
-                                    sum + Number(row.asPerBankTotalBal || 0),
-                                  0
+          {/* RIGHT: Side panel */}
+          <div className="w-80 shrink-0 space-y-4">
+            <AnimatePresence mode="wait">
+              {selectedRow ? (
+                <motion.div
+                  key="detail"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                >
+                  <Card className="border-blue-200 shadow-lg overflow-hidden">
+                    <div className="p-4 bg-gradient-to-r from-blue-600 to-indigo-700 text-white">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="font-bold text-lg">
+                            Bank Reconciliation
+                          </h3>
+                          <p className="text-blue-100 text-sm">
+                            {selectedRow.month} •{" "}
+                            {selectedRow.date
+                              ? new Date(selectedRow.date).toLocaleDateString(
+                                  "en-GB"
                                 )
-                              );
-                            })()}
-                          </span>
-                        </div>
-                      </div>
-                    </Card>
-
-                    <Card className="p-4 bg-blue-50 border-blue-200">
-                      <h4 className="text-sm font-semibold text-blue-900 mb-3">
-                        Quick Actions
-                      </h4>
-                      <div className="space-y-2">
-                        <select
-                          className="w-full border border-blue-200 p-2 rounded-lg mb-2 bg-white text-sm"
-                          onChange={(e) => {
-                            const bank = banks.find(
-                              (b) => String(b.id) === e.target.value
-                            );
-                            setSelectedBank(bank);
-                          }}
-                        >
-                          <option value="">Select Bank</option>
-                          {banks.map((b) => (
-                            <option key={b.id} value={String(b.id)}>
-                              {b.bank_name}
-                            </option>
-                          ))}
-                        </select>
-
-                        <p className="text-xs text-gray-500 mb-2">
-                          Select a row to enable entry
-                        </p>
-
-                        <Button
-                          className="w-full justify-start"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            if (!selectedRow && bankData.length > 0) {
-                              const firstRow = bankData[0];
-                              setSelectedRow(firstRow);
-                              setRemainingBalance(
-                                firstRow.remainingBalance || 0
-                              );
-                            }
-                            setShowEntryModal(true);
-                          }}
-                        >
-                          <Plus className="w-4 h-4 mr-2" />
-                          Add Bank Entry
-                        </Button>
-
-                        <div className="pt-2 border-t border-blue-200 mt-2">
-                          <p className="text-xs font-semibold text-blue-800 uppercase tracking-wider mb-2 flex items-center gap-1">
-                            <ArrowLeftRight className="w-3 h-3" />
-                            Bank to Bank Transfer
+                              : "-"}
                           </p>
-                          <Button
-                            className="w-full justify-start bg-indigo-600 hover:bg-indigo-700 text-white border-0 mb-2"
-                            size="sm"
-                            onClick={() => {
-                              setEditTransfer(null);
-                              setShowTransferModal(true);
-                            }}
-                          >
-                            <ArrowLeftRight className="w-4 h-4 mr-2" />
-                            New Transfer
-                          </Button>
-                          <Button
-                            className="w-full justify-start"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setShowTransferHistory(true)}
-                          >
-                            <History className="w-4 h-4 mr-2" />
-                            History
-                            {transfers.length > 0 && (
-                              <span className="ml-auto bg-indigo-100 text-indigo-700 text-xs rounded-full px-2 py-0.5 font-semibold">
-                                {transfers.length}
-                              </span>
-                            )}
-                          </Button>
-
-                          {transfers.length > 0 && (
-                            <div className="mt-2 space-y-1">
-                              {transfers.slice(0, 2).map((t) => (
-                                <div
-                                  key={t.id}
-                                  className="bg-white rounded-lg p-2 border border-indigo-100 text-xs"
-                                >
-                                  <div className="flex items-center justify-between mb-1">
-                                    <span className="text-gray-500">
-                                      {t.transfer_date
-                                        ? new Date(
-                                            t.transfer_date
-                                          ).toLocaleDateString("en-GB", {
-                                            day: "2-digit",
-                                            month: "short",
-                                          })
-                                        : "-"}
-                                    </span>
-                                    <span className="font-mono font-semibold text-indigo-700">
-                                      ₹
-                                      {Number(t.amount).toLocaleString("en-IN")}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-1 text-gray-600">
-                                    <span className="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded text-xs truncate max-w-[80px]">
-                                      {t.sender_bank_name || "—"}
-                                    </span>
-                                    <ArrowLeftRight className="w-3 h-3 flex-shrink-0 text-gray-400" />
-                                    <span className="bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded text-xs truncate max-w-[80px]">
-                                      {t.receiver_bank_name || "—"}
-                                    </span>
-                                  </div>
-                                </div>
-                              ))}
-                              {transfers.length > 2 && (
-                                <button
-                                  onClick={() => setShowTransferHistory(true)}
-                                  className="text-xs text-indigo-600 hover:text-indigo-800 w-full text-center py-1"
-                                >
-                                  +{transfers.length - 2} more transfers →
-                                </button>
-                              )}
-                            </div>
-                          )}
                         </div>
-
-                        <Button
-                          className="w-full justify-start mt-1"
-                          variant="outline"
-                          size="sm"
+                        <button
+                          onClick={() => setSelectedRow(null)}
+                          className="text-blue-200 hover:text-white"
                         >
-                          <Filter className="w-4 h-4 mr-2" />
-                          View Unreconciled
-                        </Button>
+                          <X className="w-5 h-5" />
+                        </button>
                       </div>
-                    </Card>
-                  </>
-                ) : (
-                  <Card className="p-4 bg-purple-50 border-purple-200">
-                    <h4 className="text-sm font-semibold text-purple-900 mb-3">
-                      Projection Summary
-                    </h4>
-                    <p className="text-xs text-purple-700 mb-4">
-                      Opening Balance rolls forward: each month's closing
-                      becomes next month's opening.
-                    </p>
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs text-purple-600">
-                          This Month Opening
-                        </span>
-                        <span className="font-mono font-medium">
-                          {formatCurrency(
-                            fundFlowData.length > 0
-                              ? fundFlowData[0].opening_balance
-                              : 0
-                          )}
-                        </span>
+                    </div>
+                    <div className="p-4 space-y-4 max-h-[calc(100vh-250px)] overflow-y-auto">
+                      <h4 className="text-xs font-bold text-gray-400 uppercase flex items-center">
+                        <Wallet className="w-3 h-3 mr-1" /> Balance Comparison
+                      </h4>
+                      <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                        <p className="text-sm text-blue-700 font-medium mb-1">
+                          As Per Bank
+                        </p>
+                        <p className="text-xl font-bold font-mono text-blue-700">
+                          {formatCurrencyFull(selectedRow.asPerBankTotalBal)}
+                        </p>
+                        <p className="text-xs text-blue-500 mt-1">
+                          Manual entry from bank statement
+                        </p>
                       </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs text-purple-600">
-                          Month 6 Closing
-                        </span>
-                        <span className="font-mono font-medium text-purple-700">
-                          {fundFlowData.length > 0
-                            ? formatCurrency(
-                                fundFlowData[fundFlowData.length - 1]
-                                  .projected_closing_balance
-                              )
-                            : "₹ 0"}
-                        </span>
+                      <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
+                        <p className="text-sm text-emerald-700 font-medium mb-1">
+                          As Per Software
+                        </p>
+                        <p className="text-xl font-bold font-mono text-emerald-700">
+                          {formatCurrencyFull(selectedRow.asPerSwTotalBal)}
+                        </p>
+                        <p className="text-xs text-emerald-500 mt-1">
+                          Auto-fetched from software entries
+                        </p>
                       </div>
-                      <div className="h-px bg-purple-200 my-1" />
-                      <p className="text-xs font-semibold text-purple-800 uppercase tracking-wider">
-                        Monthly Closing
-                      </p>
-                      {fundFlowData.map((row, i) => (
-                        <div
-                          key={i}
-                          className="flex justify-between items-center"
-                        >
-                          <span className="text-xs text-purple-600">
-                            {row.month}
+                      <div
+                        className={`p-4 rounded-xl border ${
+                          Math.abs(selectedRow.difference) < 50000
+                            ? "bg-emerald-50 border-emerald-200"
+                            : "bg-rose-50 border-rose-200"
+                        }`}
+                      >
+                        <div className="flex justify-between items-center">
+                          <span
+                            className={`text-sm font-bold ${
+                              Math.abs(selectedRow.difference) < 50000
+                                ? "text-emerald-800"
+                                : "text-rose-800"
+                            }`}
+                          >
+                            Difference
                           </span>
                           <span
-                            className={`font-mono text-xs font-semibold ${
-                              Number(row.projected_closing_balance) >=
-                              Number(row.opening_balance)
-                                ? "text-emerald-600"
-                                : "text-rose-600"
+                            className={`text-2xl font-bold font-mono ${
+                              Math.abs(selectedRow.difference) < 50000
+                                ? "text-emerald-700"
+                                : "text-rose-700"
                             }`}
                           >
-                            {formatCurrency(row.projected_closing_balance)}
+                            {selectedRow.difference > 0 ? "+" : ""}
+                            {formatCurrencyFull(
+                              Math.abs(selectedRow.difference)
+                            )}
                           </span>
                         </div>
-                      ))}
-                      <div className="h-px bg-purple-200 my-1" />
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs text-purple-600">
-                          Months Projected
+                      </div>
+                      <div className="flex space-x-2 pt-2">
+                        <Button className="flex-1" variant="outline" size="sm">
+                          <Download className="w-4 h-4 mr-2" />
+                          Download
+                        </Button>
+                        {selectedRow.status !== "reconciled" && (
+                          <Button
+                            className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+                            size="sm"
+                          >
+                            <CheckCircle2 className="w-4 h-4 mr-2" />
+                            Reconcile
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="actions"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                >
+                  <Card className="p-4">
+                    <h4 className="text-sm font-semibold text-gray-900 mb-4">
+                      Reconciliation Status
+                    </h4>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center">
+                          <div className="w-3 h-3 rounded-full bg-emerald-500 mr-2" />
+                          <span className="text-sm text-gray-600">
+                            Reconciled
+                          </span>
+                        </div>
+                        <span className="font-mono font-medium text-emerald-600">
+                          {
+                            bankData.filter((d) => d.status === "reconciled")
+                              .length
+                          }
                         </span>
-                        <span className="font-mono font-medium">
-                          {fundFlowData.length}
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center">
+                          <div className="w-3 h-3 rounded-full bg-amber-500 mr-2" />
+                          <span className="text-sm text-gray-600">Pending</span>
+                        </div>
+                        <span className="font-mono font-medium text-amber-600">
+                          {
+                            bankData.filter((d) => d.status === "pending")
+                              .length
+                          }
+                        </span>
+                      </div>
+                      <div className="h-px bg-gray-200 my-2" />
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-500">
+                          Total Bank Balance
+                        </span>
+                        <span className="font-mono font-medium text-blue-600">
+                          {(() => {
+                            const latest = {};
+                            bankData.forEach((row) => {
+                              const ex = latest[row.bank_id];
+                              if (!ex || new Date(row.date) > new Date(ex.date))
+                                latest[row.bank_id] = row;
+                            });
+                            return formatCurrency(
+                              Object.values(latest).reduce(
+                                (s, r) => s + Number(r.asPerBankTotalBal || 0),
+                                0
+                              )
+                            );
+                          })()}
                         </span>
                       </div>
                     </div>
                   </Card>
-                )}
-              </>
-            )}
-          </AnimatePresence>
+
+                  <Card className="p-4 bg-blue-50 border-blue-200 mt-4">
+                    <h4 className="text-sm font-semibold text-blue-900 mb-3">
+                      Quick Actions
+                    </h4>
+                    <div className="space-y-2">
+                      <select
+                        className="w-full border border-blue-200 p-2 rounded-lg mb-2 bg-white text-sm"
+                        onChange={(e) => {
+                          const bank = banks.find(
+                            (b) => String(b.id) === e.target.value
+                          );
+                          setSelectedBank(bank);
+                        }}
+                      >
+                        <option value="">Select Bank</option>
+                        {banks.map((b) => (
+                          <option key={b.id} value={String(b.id)}>
+                            {b.bank_name}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-gray-500 mb-2">
+                        Select a row to enable entry
+                      </p>
+                      <Button
+                        className="w-full justify-start"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          if (!selectedRow && bankData.length > 0) {
+                            const first = bankData[0];
+                            setSelectedRow(first);
+                            setRemainingBalance(first.remainingBalance || 0);
+                          }
+                          setShowEntryModal(true);
+                        }}
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Bank Entry
+                      </Button>
+                      <div className="pt-2 border-t border-blue-200 mt-2">
+                        <p className="text-xs font-semibold text-blue-800 uppercase tracking-wider mb-2 flex items-center gap-1">
+                          <ArrowLeftRight className="w-3 h-3" />
+                          Bank to Bank Transfer
+                        </p>
+                        <Button
+                          className="w-full justify-start bg-indigo-600 hover:bg-indigo-700 text-white border-0 mb-2"
+                          size="sm"
+                          onClick={() => {
+                            setEditTransfer(null);
+                            setShowTransferModal(true);
+                          }}
+                        >
+                          <ArrowLeftRight className="w-4 h-4 mr-2" />
+                          New Transfer
+                        </Button>
+                        <Button
+                          className="w-full justify-start"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowTransferHistory(true)}
+                        >
+                          <History className="w-4 h-4 mr-2" />
+                          History
+                          {transfers.length > 0 && (
+                            <span className="ml-auto bg-indigo-100 text-indigo-700 text-xs rounded-full px-2 py-0.5 font-semibold">
+                              {transfers.length}
+                            </span>
+                          )}
+                        </Button>
+                        {transfers.length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            {transfers.slice(0, 2).map((t) => (
+                              <div
+                                key={t.id}
+                                className="bg-white rounded-lg p-2 border border-indigo-100 text-xs"
+                              >
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-gray-500">
+                                    {t.transfer_date
+                                      ? new Date(
+                                          t.transfer_date
+                                        ).toLocaleDateString("en-GB", {
+                                          day: "2-digit",
+                                          month: "short",
+                                        })
+                                      : "-"}
+                                  </span>
+                                  <span className="font-mono font-semibold text-indigo-700">
+                                    ₹{Number(t.amount).toLocaleString("en-IN")}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1 text-gray-600">
+                                  <span className="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded text-xs truncate max-w-[80px]">
+                                    {t.sender_bank_name || "—"}
+                                  </span>
+                                  <ArrowLeftRight className="w-3 h-3 flex-shrink-0 text-gray-400" />
+                                  <span className="bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded text-xs truncate max-w-[80px]">
+                                    {t.receiver_bank_name || "—"}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                            {transfers.length > 2 && (
+                              <button
+                                onClick={() => setShowTransferHistory(true)}
+                                className="text-xs text-indigo-600 hover:text-indigo-800 w-full text-center py-1"
+                              >
+                                +{transfers.length - 2} more transfers →
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <Button
+                        className="w-full justify-start mt-1"
+                        variant="outline"
+                        size="sm"
+                      >
+                        <Filter className="w-4 h-4 mr-2" />
+                        View Unreconciled
+                      </Button>
+                    </div>
+                  </Card>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Add Entry Modal */}
       <AddEntryModal
