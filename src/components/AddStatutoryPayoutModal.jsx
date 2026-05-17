@@ -4,9 +4,66 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   X, ArrowRight, AlertCircle, FileCheck, Eye,
   ChevronLeft, Trash2, Loader2, CheckCircle2,
+  IndianRupee, AlertTriangle, StickyNote, ShieldCheck,
 } from "lucide-react";
 
-// ─── Inline View Panel ─────────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────────────
+const inr = (v) => Number(v || 0).toLocaleString("en-IN");
+
+// ─── Section Card ────────────────────────────────────────────────────────────────
+const Section = ({ icon: Icon, title, color, children }) => {
+  const map = {
+    blue:    { card: "bg-blue-50/60 border-blue-100",    icon: "bg-blue-100 text-blue-600",    title: "text-blue-800" },
+    emerald: { card: "bg-emerald-50/60 border-emerald-100", icon: "bg-emerald-100 text-emerald-600", title: "text-emerald-800" },
+    amber:   { card: "bg-amber-50/60 border-amber-100",  icon: "bg-amber-100 text-amber-600",  title: "text-amber-800" },
+    gray:    { card: "bg-gray-50/60 border-gray-100",    icon: "bg-gray-100 text-gray-500",    title: "text-gray-700" },
+  };
+  const s = map[color] || map.gray;
+  return (
+    <div className={`rounded-2xl border ${s.card} p-5`}>
+      <div className="flex items-center gap-2.5 mb-5">
+        <div className={`w-7 h-7 rounded-xl flex items-center justify-center ${s.icon}`}>
+          <Icon className="w-3.5 h-3.5" />
+        </div>
+        <h3 className={`text-xs font-black uppercase tracking-widest ${s.title}`}>{title}</h3>
+      </div>
+      {children}
+    </div>
+  );
+};
+
+// ─── Field Wrapper ───────────────────────────────────────────────────────────────
+const Field = ({ label, required, hint, error, showErrors, children }) => (
+  <div>
+    <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5">
+      {label}{required && <span className="text-rose-500 ml-0.5">*</span>}
+    </label>
+    {children}
+    {hint && !(showErrors && error) && <p className="text-[11px] text-gray-400 mt-1">{hint}</p>}
+    <AnimatePresence>
+      {showErrors && error && (
+        <motion.p
+          initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+          className="flex items-center gap-1 text-[11px] text-rose-500 font-semibold mt-1"
+        >
+          <AlertCircle className="w-3 h-3 shrink-0" />{error}
+        </motion.p>
+      )}
+    </AnimatePresence>
+  </div>
+);
+
+const selCls = (err) =>
+  `w-full bg-white border-2 text-gray-800 text-sm px-3.5 py-2.5 rounded-xl outline-none transition-all font-medium
+   focus:ring-4 focus:ring-cyan-500/10 focus:border-cyan-400 hover:border-gray-200
+   ${err ? "border-rose-400" : "border-gray-100"}`;
+
+const inpCls = (err) =>
+  `w-full bg-white border-2 text-gray-800 text-sm px-3.5 py-2.5 rounded-xl outline-none transition-all font-medium
+   focus:ring-4 focus:ring-cyan-500/10 focus:border-cyan-400 hover:border-gray-200 placeholder:text-gray-300
+   ${err ? "border-rose-400" : "border-gray-100"}`;
+
+// ─── Records Panel ────────────────────────────────────────────────────────────────
 const StatutoryRecordsPanel = ({ onClose }) => {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -35,10 +92,7 @@ const StatutoryRecordsPanel = ({ onClose }) => {
     setConfirmId(null);
     setDeletingId(id);
     try {
-      const { error } = await supabase.rpc(
-        "delete_statutory_payment_complete",
-        { p_id: id }
-      );
+      const { error } = await supabase.rpc("delete_statutory_payment_complete", { p_id: id });
       if (error) throw error;
       window.refreshDashboard?.();
       showToast("Deleted & ERP synced");
@@ -50,115 +104,143 @@ const StatutoryRecordsPanel = ({ onClose }) => {
     }
   };
 
-  const statusColor = (s) => ({
-    paid: "bg-emerald-100 text-emerald-700",
-    partial: "bg-amber-100 text-amber-700",
-    pending: "bg-rose-100 text-rose-700",
-  }[s] || "bg-gray-100 text-gray-600");
+  const statusBadge = {
+    paid:    "bg-emerald-50 text-emerald-600 border border-emerald-200",
+    partial: "bg-amber-50 text-amber-600 border border-amber-200",
+    pending: "bg-rose-50 text-rose-600 border border-rose-200",
+  };
 
   const totalPaid = records.reduce((s, r) => s + Number(r.total_paid || 0), 0);
 
   return (
     <motion.div
-      initial={{ x: "100%" }}
-      animate={{ x: 0 }}
-      exit={{ x: "100%" }}
-      transition={{ type: "tween", duration: 0.25 }}
+      initial={{ x: "100%", opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: "100%", opacity: 0 }}
+      transition={{ type: "spring", damping: 28, stiffness: 260 }}
       className="absolute inset-0 bg-white z-10 flex flex-col rounded-2xl overflow-hidden"
     >
-      {/* Panel Header */}
-      <div className="bg-gradient-to-r from-cyan-600 to-blue-700 px-5 py-4 text-white flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <button onClick={onClose} className="flex items-center gap-1 text-cyan-100 hover:text-white transition-colors">
-            <ChevronLeft className="w-4 h-4" />
-            <span className="text-xs font-semibold">Back</span>
-          </button>
-          <div className="w-px h-4 bg-white/30" />
-          <div>
-            <h3 className="text-sm font-bold">Statutory Payout Records</h3>
-            <p className="text-cyan-200 text-xs">{records.length} records · ₹ {totalPaid.toLocaleString("en-IN")} paid</p>
+      {/* Header */}
+      <div className="bg-gradient-to-r from-cyan-600 via-cyan-500 to-blue-600 px-5 py-4 flex-shrink-0 text-white">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onClose}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-xl text-xs font-bold transition-all"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" /> Back
+            </button>
+            <div className="w-px h-5 bg-white/25" />
+            <div>
+              <p className="text-sm font-black">Statutory Payout Records</p>
+              <p className="text-[11px] text-cyan-200 mt-0.5">{records.length} records · ₹ {inr(totalPaid)} paid</p>
+            </div>
           </div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-xl transition-all">
+            <X className="w-4 h-4" />
+          </button>
         </div>
-        <button onClick={onClose} className="text-cyan-100 hover:text-white">
-          <X className="w-5 h-5" />
-        </button>
       </div>
 
-      {/* Records */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
+      {/* List */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-2.5 bg-gray-50/50">
         {loading ? (
-          <div className="flex items-center justify-center py-16 text-gray-400">
-            <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading...
+          <div className="flex items-center justify-center py-20 text-gray-300">
+            <Loader2 className="w-6 h-6 animate-spin mr-2" />
+            <span className="text-sm font-medium">Loading…</span>
           </div>
         ) : records.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-            <FileCheck className="w-8 h-8 mb-2 opacity-30" />
-            <p className="text-sm">No statutory payout records yet</p>
+          <div className="flex flex-col items-center justify-center py-20 text-gray-300">
+            <FileCheck className="w-10 h-10 mb-3 opacity-40" />
+            <p className="text-sm font-semibold">No records yet</p>
           </div>
-        ) : (
-          records.map((row) => (
-            <div
-              key={row.id}
-              className={`bg-white border border-gray-100 rounded-xl p-3.5 shadow-sm transition-opacity ${deletingId === row.id ? "opacity-40 pointer-events-none" : ""}`}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-bold text-gray-900 text-sm">{row.type}</span>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusColor(row.calculated_status)}`}>
-                      {row.calculated_status?.toUpperCase()}
-                    </span>
-                    {row.penalty && (
-                      <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-semibold">+ Penalty</span>
-                    )}
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {row.entity} ·{" "}
-                    {row.month ? new Date(row.month).toLocaleDateString("en-IN", { month: "short", year: "numeric" }) : "—"}
-                    {row.bank_name && <span className="text-blue-500"> · {row.bank_name}</span>}
-                  </p>
-                  <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                    <span className="text-xs text-gray-500">Due: <span className="font-semibold text-gray-800">₹ {Number(row.total_due || 0).toLocaleString("en-IN")}</span></span>
-                    <span className="text-xs text-emerald-600">Paid: <span className="font-semibold">₹ {Number(row.total_paid || 0).toLocaleString("en-IN")}</span></span>
-                    {Number(row.pending_due) > 0 && (
-                      <span className="text-xs text-rose-600">Pending: <span className="font-semibold">₹ {Number(row.pending_due).toLocaleString("en-IN")}</span></span>
-                    )}
-                    {row.delay_days > 0 && (
-                      <span className="text-[10px] bg-rose-50 text-rose-600 px-1.5 py-0.5 rounded">{row.delay_days}d late</span>
-                    )}
-                  </div>
+        ) : records.map((row) => (
+          <motion.div
+            key={row.id}
+            layout
+            animate={{ opacity: deletingId === row.id ? 0.4 : 1 }}
+            className={`bg-white rounded-2xl border border-gray-100 p-4 shadow-sm ${deletingId === row.id ? "pointer-events-none" : ""}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                {/* Badge row */}
+                <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                  <span className="font-black text-gray-900 text-sm">{row.type}</span>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusBadge[row.calculated_status] || "bg-gray-100 text-gray-500"}`}>
+                    {row.calculated_status?.toUpperCase()}
+                  </span>
+                  {row.penalty && (
+                    <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded-full font-bold">⚡ Penalty</span>
+                  )}
+                  {row.delay_days > 0 && (
+                    <span className="text-[10px] bg-rose-50 text-rose-500 border border-rose-200 px-2 py-0.5 rounded-full font-bold">{row.delay_days}d late</span>
+                  )}
                 </div>
 
-                {/* Delete */}
-                <div className="flex-shrink-0">
-                  {deletingId === row.id ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
-                  ) : confirmId === row.id ? (
-                    <div className="flex items-center gap-1.5">
-                      <button onClick={() => handleDelete(row.id)} className="px-2.5 py-1 bg-rose-600 text-white text-xs font-bold rounded-lg hover:bg-rose-700 transition-colors">Confirm</button>
-                      <button onClick={() => setConfirmId(null)} className="px-2 py-1 border border-gray-200 text-gray-500 text-xs rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                {/* Meta */}
+                <p className="text-[11px] text-gray-400 font-medium mb-3">
+                  {row.entity}
+                  {row.month && <> · {new Date(row.month).toLocaleDateString("en-IN", { month: "short", year: "numeric" })}</>}
+                  {row.bank_name && <span className="text-cyan-500"> · {row.bank_name}</span>}
+                </p>
+
+                {/* Amounts */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-gray-50 rounded-xl px-2.5 py-2 text-center">
+                    <p className="text-[9px] text-gray-400 font-bold uppercase mb-0.5">Due</p>
+                    <p className="text-xs font-black text-gray-700">₹{inr(row.total_due)}</p>
+                  </div>
+                  <div className="bg-emerald-50 rounded-xl px-2.5 py-2 text-center">
+                    <p className="text-[9px] text-emerald-500 font-bold uppercase mb-0.5">Paid</p>
+                    <p className="text-xs font-black text-emerald-600">₹{inr(row.total_paid)}</p>
+                  </div>
+                  {Number(row.pending_due) > 0 ? (
+                    <div className="bg-rose-50 rounded-xl px-2.5 py-2 text-center">
+                      <p className="text-[9px] text-rose-400 font-bold uppercase mb-0.5">Pending</p>
+                      <p className="text-xs font-black text-rose-600">₹{inr(row.pending_due)}</p>
                     </div>
                   ) : (
-                    <button
-                      onClick={() => setConfirmId(row.id)}
-                      className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-xs font-semibold border border-rose-100 transition-colors"
-                    >
-                      <Trash2 className="w-3 h-3" /> Delete
-                    </button>
+                    <div className="bg-emerald-50 rounded-xl px-2.5 py-2 text-center">
+                      <p className="text-[9px] text-emerald-400 font-bold uppercase mb-0.5">Status</p>
+                      <p className="text-xs font-black text-emerald-500">Cleared</p>
+                    </div>
                   )}
                 </div>
               </div>
+
+              {/* Delete */}
+              <div className="flex-shrink-0 pt-0.5">
+                {deletingId === row.id ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
+                ) : confirmId === row.id ? (
+                  <div className="flex flex-col gap-1.5">
+                    <button onClick={() => handleDelete(row.id)} className="px-3 py-1.5 bg-rose-500 text-white text-[11px] font-black rounded-xl hover:bg-rose-600 transition-colors">
+                      Confirm
+                    </button>
+                    <button onClick={() => setConfirmId(null)} className="px-3 py-1.5 border-2 border-gray-100 text-gray-400 text-[11px] font-bold rounded-xl hover:bg-gray-50 transition-colors">
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmId(row.id)}
+                    className="p-2 text-gray-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl border-2 border-transparent hover:border-rose-100 transition-all"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </div>
-          ))
-        )}
+          </motion.div>
+        ))}
       </div>
 
       {/* Toast */}
       <AnimatePresence>
         {toast && (
           <motion.div
-            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
-            className={`absolute bottom-4 left-4 right-4 flex items-center gap-2 px-4 py-3 rounded-xl text-white text-xs font-semibold shadow-lg ${toast.type === "success" ? "bg-emerald-600" : "bg-rose-600"}`}
+            initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }}
+            className={`absolute bottom-4 left-4 right-4 flex items-center gap-2.5 px-4 py-3 rounded-2xl text-white text-xs font-bold shadow-xl ${toast.type === "success" ? "bg-emerald-500" : "bg-rose-500"}`}
           >
             <CheckCircle2 className="w-4 h-4 shrink-0" />{toast.msg}
           </motion.div>
@@ -168,7 +250,7 @@ const StatutoryRecordsPanel = ({ onClose }) => {
   );
 };
 
-// ─── Main Modal ────────────────────────────────────────────────────────────────
+// ─── Main Modal ───────────────────────────────────────────────────────────────────
 const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [], banks = [] }) => {
   const [formData, setFormData] = useState({
     entity: "", bank_id: "", statutoryPayoutType: "GST",
@@ -180,7 +262,7 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [], banks = [] })
   const [errors, setErrors] = useState({});
   const [showErrors, setShowErrors] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [viewOpen, setViewOpen] = useState(false);  // ← inline panel state
+  const [viewOpen, setViewOpen] = useState(false);
 
   const statutoryTypes = [
     { value: "GST", label: "GST" }, { value: "TDS", label: "TDS" },
@@ -191,10 +273,9 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [], banks = [] })
 
   const fetchAutoDue = async (entity, month, type) => {
     if (!entity || !month) return;
-    const formattedMonth = `${month}-01`;
     const { data: dueData } = await supabase.rpc("get_statutory_due", {
       selected_entity: entity,
-      selected_month: formattedMonth,
+      selected_month: `${month}-01`,
       selected_type: type,
     });
     const totalDue = Number(dueData?.[0]?.total_due || 0);
@@ -204,61 +285,52 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [], banks = [] })
   const handleChange = (field, value) => {
     setFormData((prev) => {
       let updated = { ...prev, [field]: value };
-
       if (field === "totalPaid") {
         const remaining = parseFloat(prev.totalDue) || 0;
         const entered = parseFloat(value) || 0;
-        if (entered > remaining) {
-          return { ...prev, totalPaid: remaining.toString() };
-        }
+        if (entered > remaining) return { ...prev, totalPaid: remaining.toString() };
         updated.totalPaid = value;
       }
-
-      if (
-        (field === "entity" || field === "forTheMonth" || field === "statutoryPayoutType") &&
-        updated.entity && updated.forTheMonth && updated.statutoryPayoutType
-      ) {
+      if (["entity", "forTheMonth", "statutoryPayoutType"].includes(field) &&
+        updated.entity && updated.forTheMonth && updated.statutoryPayoutType) {
         fetchAutoDue(updated.entity, updated.forTheMonth, updated.statutoryPayoutType);
       }
-
       return updated;
     });
-
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: "" }));
   };
 
   useEffect(() => {
-    const totalDue = parseFloat(formData.totalDue) || 0;
-    const totalPaid = parseFloat(formData.totalPaid) || 0;
-    const pendingDue = totalDue - totalPaid;
-    setFormData((prev) => ({ ...prev, pendingDue: pendingDue >= 0 ? pendingDue.toFixed(2) : "0.00" }));
+    const due = parseFloat(formData.totalDue) || 0;
+    const paid = parseFloat(formData.totalPaid) || 0;
+    const pending = due - paid;
+    setFormData((prev) => ({ ...prev, pendingDue: pending >= 0 ? pending.toFixed(2) : "0.00" }));
   }, [formData.totalDue, formData.totalPaid]);
 
-  const calculateTotalPercentage = () => {
-    return ["ops", "temp", "recruitment", "projects", "others"]
+  const calculateTotalPercentage = () =>
+    ["ops", "temp", "recruitment", "projects", "others"]
       .reduce((s, k) => s + (parseFloat(formData[k]) || 0), 0);
-  };
 
   const validateForm = () => {
-    const newErrors = {};
-    if (!formData.entity) newErrors.entity = "Entity is required";
-    if (!formData.bank_id) newErrors.bank_id = "Bank is required";
-    if (!formData.statutoryPayoutType) newErrors.statutoryPayoutType = "Type is required";
-    if (!formData.forTheMonth.trim()) newErrors.forTheMonth = "Month is required";
-    if (!formData.totalDue) newErrors.totalDue = "Total due is required";
-    if (!formData.totalPaid) newErrors.totalPaid = "Total paid is required";
+    const e = {};
+    if (!formData.entity) e.entity = "Entity is required";
+    if (!formData.bank_id) e.bank_id = "Bank is required";
+    if (!formData.statutoryPayoutType) e.statutoryPayoutType = "Type is required";
+    if (!formData.forTheMonth.trim()) e.forTheMonth = "Month is required";
+    if (!formData.totalDue) e.totalDue = "Total due is required";
+    if (!formData.totalPaid) e.totalPaid = "Total paid is required";
     if (formData.anyInterestPenalties === "Yes") {
-      if (!formData.penaltyAmount) newErrors.penaltyAmount = "Penalty amount is required";
-      if (!formData.penaltyPercentage) newErrors.penaltyPercentage = "Penalty percentage is required";
+      if (!formData.penaltyAmount) e.penaltyAmount = "Penalty amount is required";
+      if (!formData.penaltyPercentage) e.penaltyPercentage = "Penalty % is required";
       if (Math.abs(calculateTotalPercentage() - 100) > 0.01)
-        newErrors.costHeadBreakdown = "Cost head breakdown must total 100%";
+        e.costHeadBreakdown = "Cost head breakdown must total 100%";
     }
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async (ev) => {
+    ev.preventDefault();
     setShowErrors(true);
     if (!validateForm()) return;
 
@@ -282,12 +354,10 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [], banks = [] })
         projection_status: "actual",
         payment_status: Number(formData.pendingDue) <= 0 ? "paid" : "partial",
       };
-
       // Insert into statutory_payments
       // Triggers auto-create bank_entries + software_entries
       const { error } = await supabase.from("statutory_payments").insert([payload]);
       if (error) throw error;
-
       window.refreshDashboard?.();
       alert("✅ Statutory Payment Saved");
       resetForm();
@@ -314,210 +384,248 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [], banks = [] })
 
   const handleClose = () => { resetForm(); onClose(); };
 
-  const ErrorMessage = ({ error }) => {
-    if (!showErrors || !error) return null;
-    return (
-      <div className="flex items-center mt-1 text-xs text-rose-600">
-        <AlertCircle className="w-3 h-3 mr-1" />{error}
-      </div>
-    );
-  };
-
   const totalPercentage = calculateTotalPercentage();
+  const hasPending = Number(formData.pendingDue) > 0;
 
   return (
     <AnimatePresence>
       {isOpen && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4"
           onClick={handleClose}
         >
           <motion.div
-            initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }}
+            initial={{ scale: 0.94, y: 24, opacity: 0 }}
+            animate={{ scale: 1, y: 0, opacity: 1 }}
+            exit={{ scale: 0.94, y: 24, opacity: 0 }}
+            transition={{ type: "spring", damping: 26, stiffness: 260 }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden relative"
+            className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-hidden relative flex flex-col"
           >
-            {/* ── Inline View Panel ── */}
+            {/* Inline Records Panel */}
             <AnimatePresence>
               {viewOpen && <StatutoryRecordsPanel onClose={() => setViewOpen(false)} />}
             </AnimatePresence>
 
             {/* ── Header ── */}
-            <div className="bg-gradient-to-r from-cyan-600 to-blue-700 p-6 text-white">
+            <div className="bg-gradient-to-r from-cyan-600 via-cyan-500 to-blue-600 px-7 py-5 text-white flex-shrink-0">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-2xl font-bold">+ ADD STATUTORY PAYOUT</h2>
-                  <p className="text-cyan-100 text-sm mt-1">Record statutory compliance payments</p>
+                  <p className="text-[10px] font-bold text-cyan-200 uppercase tracking-[3px] mb-1">Compliance</p>
+                  <h2 className="text-xl font-black tracking-tight">+ Add Statutory Payout</h2>
+                  <p className="text-cyan-100/80 text-xs mt-0.5">Record statutory compliance payments</p>
                 </div>
-                <div className="flex items-center gap-3">
-                  {/* VIEW button — opens inline panel, no page reload */}
+                <div className="flex items-center gap-2.5">
                   <button
                     type="button"
                     onClick={() => setViewOpen(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white/15 hover:bg-white/25 text-white rounded-lg text-xs font-semibold border border-white/30 transition-colors"
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold border border-white/20 transition-all"
                   >
-                    <Eye className="w-3.5 h-3.5" />
-                    View Records
+                    <Eye className="w-3.5 h-3.5" /> View Records
                   </button>
-                  <button onClick={handleClose} className="text-cyan-100 hover:text-white transition-colors">
-                    <X className="w-6 h-6" />
+                  <button
+                    onClick={handleClose}
+                    className="w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-xl transition-all text-cyan-100 hover:text-white"
+                  >
+                    <X className="w-4 h-4" />
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* ── Form ── */}
-            <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
-              <form onSubmit={handleSubmit} className="space-y-6">
+            {/* ── Scrollable Form ── */}
+            <div className="flex-1 overflow-y-auto p-6 bg-gray-50/30">
+              <form onSubmit={handleSubmit} className="space-y-5">
 
-                {/* Statutory Details */}
-                <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4">
-                  <h3 className="text-sm font-bold text-blue-900 uppercase tracking-wider mb-4 flex items-center">
-                    <FileCheck className="w-4 h-4 mr-2" />Statutory Details
-                  </h3>
+                {/* ── Statutory Details ── */}
+                <Section icon={ShieldCheck} title="Statutory Details" color="blue">
                   <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">Entity <span className="text-rose-600">*</span></label>
+                    <Field label="Entity" required error={errors.entity} showErrors={showErrors}>
                       <select value={formData.entity} onChange={(e) => handleChange("entity", e.target.value)}
-                        className={`w-full bg-white border text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 ${showErrors && errors.entity ? "border-rose-500" : "border-gray-300"}`}>
+                        className={selCls(showErrors && errors.entity)}>
                         <option value="">Select Entity</option>
                         {entities.map((entity, idx) => <option key={idx} value={entity}>{entity}</option>)}
                       </select>
-                      <ErrorMessage error={errors.entity} />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">Statutory Type <span className="text-rose-600">*</span></label>
+                    </Field>
+
+                    <Field label="Statutory Type" required error={errors.statutoryPayoutType} showErrors={showErrors}
+                      hint="GST / TDS / EPF / ESI / LWF / PF / Income Tax / Others">
                       <select value={formData.statutoryPayoutType} onChange={(e) => handleChange("statutoryPayoutType", e.target.value)}
-                        className={`w-full bg-white border text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 ${showErrors && errors.statutoryPayoutType ? "border-rose-500" : "border-gray-300"}`}>
-                        {statutoryTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
+                        className={selCls(showErrors && errors.statutoryPayoutType)}>
+                        {statutoryTypes.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                       </select>
-                      <ErrorMessage error={errors.statutoryPayoutType} />
-                      <p className="text-xs text-gray-500 mt-1">GST/TDS/EPF/ESI/LWF/PF/Income Tax/Others</p>
-                    </div>
+                    </Field>
                   </div>
+
                   <div className="grid grid-cols-2 gap-4 mt-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">For The Month <span className="text-rose-600">*</span></label>
-                      <input type="month" value={formData.forTheMonth} onChange={(e) => handleChange("forTheMonth", e.target.value)}
-                        className={`w-full bg-white border text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 ${showErrors && errors.forTheMonth ? "border-rose-500" : "border-gray-300"}`} />
-                      <ErrorMessage error={errors.forTheMonth} />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">Bank <span className="text-rose-600">*</span></label>
+                    <Field label="For The Month" required error={errors.forTheMonth} showErrors={showErrors}>
+                      <input type="month" value={formData.forTheMonth}
+                        onChange={(e) => handleChange("forTheMonth", e.target.value)}
+                        className={inpCls(showErrors && errors.forTheMonth)} />
+                    </Field>
+
+                    <Field label="Bank" required error={errors.bank_id} showErrors={showErrors}>
                       <select value={formData.bank_id} onChange={(e) => handleChange("bank_id", e.target.value)}
-                        className={`w-full bg-white border text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 ${showErrors && errors.bank_id ? "border-rose-500" : "border-gray-300"}`}>
+                        className={selCls(showErrors && errors.bank_id)}>
                         <option value="">Select Bank</option>
                         {banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.bank_name}</option>)}
                       </select>
-                      <ErrorMessage error={errors.bank_id} />
-                    </div>
+                    </Field>
                   </div>
-                </div>
+                </Section>
 
-                {/* Payment Info */}
-                <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-4">
-                  <h3 className="text-sm font-bold text-emerald-900 uppercase tracking-wider mb-4">Payment Information</h3>
+                {/* ── Payment Info ── */}
+                <Section icon={IndianRupee} title="Payment Information" color="emerald">
                   <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">Total Due <span className="text-rose-600">*</span></label>
-                      <input type="text" value={formData.totalDue} onChange={(e) => handleChange("totalDue", e.target.value)}
-                        className={`w-full bg-white border text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 ${showErrors && errors.totalDue ? "border-rose-500" : "border-gray-300"}`}
-                        placeholder="₹ 0" />
-                      <ErrorMessage error={errors.totalDue} />
-                      <p className="text-xs text-gray-500 mt-1">Auto Collate</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">Total Paid <span className="text-rose-600">*</span></label>
-                      <input type="text" value={formData.totalPaid} onChange={(e) => handleChange("totalPaid", e.target.value)}
-                        className={`w-full bg-white border text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 ${showErrors && errors.totalPaid ? "border-rose-500" : "border-gray-300"}`}
-                        placeholder="₹ 0" />
-                      <ErrorMessage error={errors.totalPaid} />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">Pending Due</label>
-                      <input type="text" value={formData.pendingDue} readOnly
-                        className="w-full bg-gray-100 border border-gray-300 text-gray-700 px-4 py-2.5 rounded-lg font-mono font-bold" />
-                      <p className="text-xs text-rose-600 mt-1">Auto-calculated</p>
-                    </div>
-                  </div>
-                </div>
+                    <Field label="Total Due" required error={errors.totalDue} showErrors={showErrors} hint="Auto Collate">
+                      <input type="text" value={formData.totalDue}
+                        onChange={(e) => handleChange("totalDue", e.target.value)}
+                        className={inpCls(showErrors && errors.totalDue)} placeholder="₹ 0" />
+                    </Field>
 
-                {/* Penalties */}
-                <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-4">
-                  <h3 className="text-sm font-bold text-amber-900 uppercase tracking-wider mb-4">Interest / Penalties</h3>
+                    <Field label="Total Paid" required error={errors.totalPaid} showErrors={showErrors}>
+                      <input type="text" value={formData.totalPaid}
+                        onChange={(e) => handleChange("totalPaid", e.target.value)}
+                        className={inpCls(showErrors && errors.totalPaid)} placeholder="₹ 0" />
+                    </Field>
+
+                    <Field label="Pending Due" hint="Auto-calculated">
+                      <div className={`w-full border-2 rounded-xl px-3.5 py-2.5 font-black font-mono text-sm transition-all ${
+                        hasPending
+                          ? "bg-rose-50 border-rose-200 text-rose-600"
+                          : formData.totalDue
+                            ? "bg-emerald-50 border-emerald-200 text-emerald-600"
+                            : "bg-gray-50 border-gray-100 text-gray-400"
+                      }`}>
+                        ₹ {inr(formData.pendingDue)}
+                      </div>
+                    </Field>
+                  </div>
+
+                  {/* Live status banner */}
+                  <AnimatePresence>
+                    {(formData.totalDue || formData.totalPaid) && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                        className={`mt-4 flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-xs font-bold border-2 ${
+                          hasPending
+                            ? "bg-amber-50 border-amber-200 text-amber-700"
+                            : "bg-emerald-50 border-emerald-200 text-emerald-700"
+                        }`}
+                      >
+                        {hasPending
+                          ? <><AlertTriangle className="w-3.5 h-3.5" /> Partial Payment — ₹{inr(formData.pendingDue)} still pending</>
+                          : <><CheckCircle2 className="w-3.5 h-3.5" /> Fully Paid — No pending balance</>}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </Section>
+
+                {/* ── Penalties ── */}
+                <Section icon={AlertTriangle} title="Interest / Penalties" color="amber">
                   <div className="mb-4">
-                    <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">Any Interest / Penalties</label>
-                    <div className="flex space-x-3">
-                      <button type="button" onClick={() => handleChange("anyInterestPenalties", "Yes")}
-                        className={`flex-1 px-4 py-2.5 rounded-lg font-medium transition-all ${formData.anyInterestPenalties === "Yes" ? "bg-amber-600 text-white shadow-md" : "bg-white text-gray-600 border border-gray-300"}`}>Yes</button>
-                      <button type="button" onClick={() => handleChange("anyInterestPenalties", "No")}
-                        className={`flex-1 px-4 py-2.5 rounded-lg font-medium transition-all ${formData.anyInterestPenalties === "No" ? "bg-emerald-600 text-white shadow-md" : "bg-white text-gray-600 border border-gray-300"}`}>No</button>
+                    <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-2">Any Interest / Penalties</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {["Yes", "No"].map((opt) => (
+                        <button key={opt} type="button"
+                          onClick={() => handleChange("anyInterestPenalties", opt)}
+                          className={`py-3 rounded-xl font-black text-sm transition-all border-2 ${
+                            formData.anyInterestPenalties === opt
+                              ? opt === "Yes"
+                                ? "bg-amber-500 text-white border-amber-500 shadow-lg shadow-amber-500/20"
+                                : "bg-emerald-500 text-white border-emerald-500 shadow-lg shadow-emerald-500/20"
+                              : "bg-white text-gray-400 border-gray-100 hover:border-gray-200"
+                          }`}>
+                          {opt === "Yes" ? "⚡ Yes, There's a Penalty" : "✓ No Penalty"}
+                        </button>
+                      ))}
                     </div>
                   </div>
 
-                  {formData.anyInterestPenalties === "Yes" && (
-                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">Amount of Penalty <span className="text-rose-600">*</span></label>
-                          <input type="number" value={formData.penaltyAmount} onChange={(e) => handleChange("penaltyAmount", e.target.value)}
-                            className={`w-full bg-white border text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 ${showErrors && errors.penaltyAmount ? "border-rose-500" : "border-gray-300"}`}
-                            placeholder="₹ 0" />
-                          <ErrorMessage error={errors.penaltyAmount} />
+                  <AnimatePresence>
+                    {formData.anyInterestPenalties === "Yes" && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                        className="overflow-hidden space-y-4"
+                      >
+                        <div className="grid grid-cols-2 gap-4 pt-2">
+                          <Field label="Amount of Penalty" required error={errors.penaltyAmount} showErrors={showErrors}>
+                            <input type="number" value={formData.penaltyAmount}
+                              onChange={(e) => handleChange("penaltyAmount", e.target.value)}
+                              className={inpCls(showErrors && errors.penaltyAmount)} placeholder="₹ 0" />
+                          </Field>
+                          <Field label="Penalty %" required error={errors.penaltyPercentage} showErrors={showErrors}>
+                            <input type="number" value={formData.penaltyPercentage}
+                              onChange={(e) => handleChange("penaltyPercentage", e.target.value)}
+                              className={inpCls(showErrors && errors.penaltyPercentage)} placeholder="0" />
+                          </Field>
                         </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">Penalty % <span className="text-rose-600">*</span></label>
-                          <input type="number" value={formData.penaltyPercentage} onChange={(e) => handleChange("penaltyPercentage", e.target.value)}
-                            className={`w-full bg-white border text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 ${showErrors && errors.penaltyPercentage ? "border-rose-500" : "border-gray-300"}`}
-                            placeholder="0 %" />
-                          <ErrorMessage error={errors.penaltyPercentage} />
-                        </div>
-                      </div>
 
-                      <div className="pt-4 border-t border-amber-300">
-                        <h4 className="text-xs font-bold text-amber-900 uppercase tracking-wider mb-3">Cost Head Break Up for Penalties</h4>
-                        <div className="grid grid-cols-5 gap-3">
-                          {["ops", "temp", "recruitment", "projects", "others"].map((key) => (
-                            <div key={key}>
-                              <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">{key}</label>
-                              <input type="number" value={formData[key]} onChange={(e) => handleChange(key, e.target.value)}
-                                className="w-full bg-white border border-gray-300 text-gray-900 px-3 py-2 rounded-lg focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
-                                placeholder="0" />
-                            </div>
-                          ))}
-                        </div>
-                        <div className="mt-3 p-3 bg-white rounded-lg border-2 border-amber-300">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-bold text-gray-900 uppercase tracking-wider">Total</span>
-                            <span className={`text-lg font-bold ${Math.abs(totalPercentage - 100) < 0.01 ? "text-emerald-600" : "text-rose-600"}`}>
-                              {totalPercentage.toFixed(2)}%
-                            </span>
+                        <div className="pt-4 border-t border-amber-200">
+                          <p className="text-[11px] font-black text-amber-800 uppercase tracking-widest mb-3">Cost Head Breakup for Penalties</p>
+                          <div className="grid grid-cols-5 gap-2.5">
+                            {["ops", "temp", "recruitment", "projects", "others"].map((key) => (
+                              <div key={key}>
+                                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider text-center mb-1.5">{key}</label>
+                                <input type="number" value={formData[key]}
+                                  onChange={(e) => handleChange(key, e.target.value)}
+                                  className="w-full bg-white border-2 border-gray-100 hover:border-gray-200 focus:border-amber-400 focus:ring-4 focus:ring-amber-500/10 text-gray-700 text-xs text-center px-2 py-2.5 rounded-xl outline-none font-bold transition-all"
+                                  placeholder="0" />
+                              </div>
+                            ))}
                           </div>
-                          {showErrors && errors.costHeadBreakdown && <ErrorMessage error={errors.costHeadBreakdown} />}
+
+                          <div className={`mt-3 flex items-center justify-between px-4 py-3 rounded-xl border-2 font-black text-sm transition-all ${
+                            Math.abs(totalPercentage - 100) < 0.01
+                              ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                              : "bg-rose-50 border-rose-200 text-rose-600"
+                          }`}>
+                            <span>Total Allocation</span>
+                            <span>{totalPercentage.toFixed(2)}%</span>
+                          </div>
+                          {showErrors && errors.costHeadBreakdown && (
+                            <p className="flex items-center gap-1 text-[11px] text-rose-500 font-semibold mt-1.5">
+                              <AlertCircle className="w-3 h-3 shrink-0" />{errors.costHeadBreakdown}
+                            </p>
+                          )}
                         </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </Section>
 
-                {/* Remarks */}
-                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
-                  <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">Remarks</label>
-                  <textarea value={formData.remarks} onChange={(e) => handleChange("remarks", e.target.value)} rows={3}
-                    className="w-full bg-white border border-gray-300 text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 text-sm"
-                    placeholder="Additional remarks..." />
-                </div>
+                {/* ── Remarks ── */}
+                <Section icon={StickyNote} title="Remarks" color="gray">
+                  <textarea
+                    value={formData.remarks}
+                    onChange={(e) => handleChange("remarks", e.target.value)}
+                    rows={3}
+                    className="w-full bg-white border-2 border-gray-100 hover:border-gray-200 focus:border-cyan-400 focus:ring-4 focus:ring-cyan-500/10 text-gray-700 text-sm px-4 py-3 rounded-xl outline-none resize-none transition-all font-medium placeholder:text-gray-300"
+                    placeholder="Additional remarks or notes…"
+                  />
+                </Section>
 
-                {/* Footer */}
-                <div className="flex items-center justify-between pt-4">
-                  <button type="button" onClick={handleClose} className="px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors font-medium">Cancel</button>
-                  <button type="submit" disabled={loading}
-                    className="px-8 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium shadow-lg shadow-cyan-500/30 flex items-center space-x-2">
-                    <span>{loading ? "Saving..." : "Save Statutory Payout"}</span>
-                    <ArrowRight className="w-4 h-4" />
+                {/* ── Footer ── */}
+                <div className="flex items-center justify-between pt-2 pb-1">
+                  <button
+                    type="button"
+                    onClick={handleClose}
+                    className="px-5 py-2.5 border-2 border-gray-100 text-gray-500 text-sm font-bold rounded-xl hover:bg-gray-50 hover:border-gray-200 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="flex items-center gap-2 px-8 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-black rounded-xl shadow-lg shadow-cyan-500/25 transition-all"
+                  >
+                    {loading
+                      ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving…</>
+                      : <>Save Statutory Payout <ArrowRight className="w-4 h-4" /></>}
                   </button>
                 </div>
+
               </form>
             </div>
           </motion.div>
