@@ -4,7 +4,7 @@ import { Users, Building2, CreditCard, ChevronRight, TrendingUp, AlertCircle, Ch
 import EmployeeAdvanceTracker from "./EmployeeAdvanceTracker";
 import ClientAdvanceTracker from "./ClientAdvanceTracker";
 import CreditCardTracker from "./CreditCardTracker";
-
+class
 const tabs = [
   {
     id: "employee",
