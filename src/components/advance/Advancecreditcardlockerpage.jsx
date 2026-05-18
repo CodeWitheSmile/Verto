@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Users, Building2, CreditCard, ChevronRight, TrendingUp, AlertCircle, CheckCircle2 } from "lucide-react";
-import EmployeeAdvanceTracker from "/Users/kunikabhadra/Movies/verto/verto-dashboard/src/components/advance/Employeeadvancetracker";
+import EmployeeAdvanceTracker from "./Employeeadvancetracker";
 import ClientAdvanceTracker from "./ClientAdvanceTracker";
 import CreditCardTracker from "./CreditCardTracker";
 
