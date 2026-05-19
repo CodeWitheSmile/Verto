@@ -22,6 +22,7 @@ import {
   FileSpreadsheet,
   CheckCheck,
 } from "lucide-react";
+import ExpenseRecordsView from "./ExpenseRecordsView";
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 const Select = ({ value, onChange, options, placeholder, error, disabled }) => (
@@ -188,7 +189,6 @@ const SectionHeader = ({ icon: Icon, title, color = "indigo" }) => (
 );
 
 // ─── EXCEL COLUMN MAP ─────────────────────────────────────────────────────────
-// Maps Excel column headers → our field names (case-insensitive)
 const COL_MAP = {
   "emp code": "emp_code",
   empcode: "emp_code",
@@ -227,16 +227,13 @@ const normalizeHeader = (h) =>
 const excelDateToString = (v) => {
   if (!v) return null;
   if (typeof v === "string") {
-    // Try to parse YYYY-MM or YYYY-MM-DD strings
-    if (/^\d{4}-\d{2}$/.test(v)) return v; // "2026-05" → keep
-    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v; // "2026-05-15" → keep
-    // Handle "May-26" or "May 2026"
+    if (/^\d{4}-\d{2}$/.test(v)) return v;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
     const d = new Date(v);
     if (!isNaN(d)) return d.toISOString().slice(0, 10);
     return v;
   }
   if (typeof v === "number") {
-    // Excel serial date
     const d = new Date(Math.round((v - 25569) * 86400 * 1000));
     return d.toISOString().slice(0, 10);
   }
@@ -624,6 +621,9 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
   const [saved, setSaved] = useState(false);
   const [errors, setErrors] = useState({});
 
+  // ── VIEW RECORDS STATE ──
+  const [showViewPage, setShowViewPage] = useState(false);
+
   // ── Master data ──
   const [entities, setEntities] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -636,8 +636,8 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
 
   // ── Bulk upload state ──
   const [bulkLoading, setBulkLoading] = useState(false);
-  const [bulkMismatch, setBulkMismatch] = useState(null); // { matched: [], mismatches: [] }
-  const [bulkResult, setBulkResult] = useState(null); // { added, skipped, failed, ... }
+  const [bulkMismatch, setBulkMismatch] = useState(null);
+  const [bulkResult, setBulkResult] = useState(null);
   const excelFileRef = useRef(null);
   const pendingValidRows = useRef([]);
   const pendingMasterData = useRef({});
@@ -758,6 +758,7 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
       setErrors({});
       setBulkMismatch(null);
       setBulkResult(null);
+      setShowViewPage(false);
       setIntForm({
         entity: "",
         department: "",
@@ -852,16 +853,15 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
   };
 
   // ══════════════════════════════════════════════════════════════
-  // STEP 1: User clicks "Upload Excel" → file picker opens
+  // BULK UPLOAD — STEP 1: File selected
   // ══════════════════════════════════════════════════════════════
   const handleExcelFileSelected = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (excelFileRef.current) excelFileRef.current.value = ""; // reset so same file can re-trigger
+    if (excelFileRef.current) excelFileRef.current.value = "";
 
     setBulkLoading(true);
     try {
-      // ── Parse Excel ──
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: "array", cellDates: false });
       const ws = wb.Sheets[wb.SheetNames[0]];
@@ -873,7 +873,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
         return;
       }
 
-      // ── Normalize column headers ──
       const normalizedRows = rawRows.map((row, idx) => {
         const normalized = { _rowNum: idx + 2 };
         Object.entries(row).forEach(([key, val]) => {
@@ -883,17 +882,12 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
         return normalized;
       });
 
-      // Check required fields present
       if (!normalizedRows[0].hasOwnProperty("emp_code")) {
         alert('Column "Emp Code" not found. Please use the template.');
         setBulkLoading(false);
         return;
       }
 
-      // ══════════════════════════════════════════════════════════
-      // STEP 2: Fetch all emp_codes from DB to validate
-      // Source: employee_master (your table). Also checks internal_team.
-      // ══════════════════════════════════════════════════════════
       const excelCodes = [
         ...new Set(
           normalizedRows
@@ -902,21 +896,18 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
         ),
       ];
 
-      // Query employee_master
-      const { data: empMasterRows, error: empErr } = await supabase
+      const { data: empMasterRows } = await supabase
         .from("employee_master")
         .select(
           "emp_code, employee_name, entity_master(entity_name), departments_master(dept_name), bank_master(bank_name, id), bank_id"
         )
         .in("emp_code", excelCodes);
 
-      // Also check internal_team (in case employees are there instead)
       const { data: internalTeamRows } = await supabase
         .from("internal_team")
         .select("emp_code, name, entity, department, bank_id")
         .in("emp_code", excelCodes);
 
-      // Build lookup map: emp_code → master row
       const empMap = {};
       (empMasterRows || []).forEach((r) => {
         empMap[r.emp_code] = { source: "employee_master", ...r };
@@ -926,7 +917,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
           empMap[r.emp_code] = { source: "internal_team", ...r };
       });
 
-      // Also need entity/dept/bank maps for payload building
       const entityMap = {};
       entities.forEach((e) => {
         entityMap[e.entity_name?.toLowerCase().trim()] = e.id;
@@ -940,12 +930,8 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
         bankMap[b.bank_name?.toLowerCase().trim()] = b.id;
       });
 
-      // Save master data for use in upload step
       pendingMasterData.current = { empMap, entityMap, deptMap, bankMap };
 
-      // ══════════════════════════════════════════════════════════
-      // STEP 3: Split rows into matched vs mismatched
-      // ══════════════════════════════════════════════════════════
       const validRows = [];
       const mismatchRows = [];
 
@@ -966,13 +952,11 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
       pendingValidRows.current = validRows;
 
       if (mismatchRows.length > 0) {
-        // ── Show mismatch confirm modal ──
         setBulkMismatch({
           matched: validRows.length,
           mismatches: mismatchRows,
         });
       } else {
-        // All matched — go straight to upload
         await executeUpload(validRows, pendingMasterData.current);
       }
     } catch (err) {
@@ -984,7 +968,7 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
   };
 
   // ══════════════════════════════════════════════════════════════
-  // STEP 4: User confirms mismatch modal → upload matched rows
+  // BULK UPLOAD — STEP 2: Proceed after mismatch confirm
   // ══════════════════════════════════════════════════════════════
   const handleProceedWithMatched = async () => {
     setBulkMismatch(null);
@@ -1005,7 +989,7 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
   };
 
   // ══════════════════════════════════════════════════════════════
-  // STEP 5: Execute actual DB inserts
+  // BULK UPLOAD — STEP 3: Execute DB inserts
   // ══════════════════════════════════════════════════════════════
   const executeUpload = async (validRows, masterData, existingSkipped = []) => {
     const { empMap, entityMap, deptMap, bankMap } = masterData;
@@ -1016,7 +1000,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
       try {
         const emp = row._empData;
 
-        // Resolve entity_id
         const entityName = (
           row.entity ||
           emp?.entity_master?.entity_name ||
@@ -1027,7 +1010,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
           .trim();
         const entityId = entityMap[entityName] || null;
 
-        // Resolve department_id
         const deptName = (
           row.department ||
           emp?.departments_master?.dept_name ||
@@ -1038,7 +1020,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
           .trim();
         const deptId = deptMap[deptName] || null;
 
-        // Resolve bank_id
         const bankName = (row.bank_name || emp?.bank_master?.bank_name || "")
           .toLowerCase()
           .trim();
@@ -1048,14 +1029,12 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
         const incomeTax = parseFloat(row.income_tax_deducted) || 0;
         const netPay = Math.max(paymentAmount - incomeTax, 0);
 
-        // Build month_of_pay
         let monthOfPay = null;
         if (row.month_of_pay) {
           const m = excelDateToString(row.month_of_pay);
-          if (m) monthOfPay = m.slice(0, 7) + "-01"; // "2026-05-01"
+          if (m) monthOfPay = m.slice(0, 7) + "-01";
         }
 
-        // Build date_of_pay
         const dateOfPay = excelDateToString(row.date_of_pay);
         if (!dateOfPay)
           throw new Error("Invalid date_of_pay: " + row.date_of_pay);
@@ -1085,7 +1064,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
 
         if (insertErr) throw insertErr;
 
-        // If income tax > 0, log statutory liability
         if (incomeTax > 0) {
           await supabase.from("statutory_liabilities").insert([
             {
@@ -1113,7 +1091,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
       }
     }
 
-    // ── Show result modal ──
     setBulkResult({
       added,
       skipped: existingSkipped.length,
@@ -1125,7 +1102,7 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
     if (added > 0) onSaved?.();
   };
 
-  // ── Save Internal (manual single entry) ──
+  // ── Save Internal ──
   const saveInternal = async () => {
     if (!validateInternal()) return;
     setLoading(true);
@@ -1258,6 +1235,15 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
   const intPayHeadOptions =
     internalHeads.length > 0 ? internalHeads : INTERNAL_PAY_HEADS;
   const osPayHeadOptions = osHeads.length > 0 ? osHeads : OS_PAY_HEADS;
+
+  // ─── CONDITIONAL RENDER — VIEW RECORDS PAGE ────────────────────────────────
+  if (showViewPage) {
+    return (
+      <ExpenseRecordsView
+        onClose={() => setShowViewPage(false)}
+      />
+    );
+  }
 
   // ─── OPTION SELECTION ──────────────────────────────────────────────────────
   const OptionSelection = () => (
@@ -1565,7 +1551,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
 
         {/* ── BULK UPLOAD BUTTONS ── */}
         <div className="flex items-center gap-2">
-          {/* Download Template */}
           <button
             type="button"
             onClick={downloadTemplate}
@@ -1575,7 +1560,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
             Template
           </button>
 
-          {/* Upload Excel */}
           <label
             className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold cursor-pointer transition
             ${
@@ -1604,7 +1588,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
           </label>
         </div>
 
-        {/* Save Single Entry */}
         <button
           onClick={saveInternal}
           disabled={loading || saved}
@@ -2180,10 +2163,24 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
             className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col pointer-events-auto overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
+            {/* ── Header ── */}
             <div
               className={`flex items-center justify-between px-6 py-4 bg-gradient-to-r ${hc.gradient} text-white flex-shrink-0`}
             >
+              <div className="flex items-center gap-3">
+                {/* VIEW RECORDS BUTTON — left of header, near close */}
+                <button
+                  onClick={() => setShowViewPage(true)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl
+                    bg-blue-500/15 hover:bg-blue-500/25
+                    border border-blue-500/20
+                    text-white transition-all text-sm font-semibold"
+                >
+                  <FileText className="w-4 h-4" />
+                  View Records
+                </button>
+              </div>
+
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-white/20 rounded-xl">
                   {selectedOption === "internal" ? (
@@ -2207,6 +2204,7 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
                   </p>
                 </div>
               </div>
+
               <button
                 onClick={onClose}
                 className="text-white/70 hover:text-white transition p-1"
@@ -2215,7 +2213,7 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
               </button>
             </div>
 
-            {/* Content */}
+            {/* ── Content ── */}
             <div className="flex-1 overflow-hidden">
               <AnimatePresence mode="wait">
                 {!selectedOption && (
