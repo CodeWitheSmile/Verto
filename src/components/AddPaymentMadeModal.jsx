@@ -128,9 +128,6 @@ const AddPaymentMadeModal = ({ isOpen, onClose, invoice, onSaved }) => {
 
       // 1. Create software entry FIRST
 
-
-      if (swError) throw swError;
-
       // 2. Create payment_made record linked to software entry
       const { data: savedPayment, error: payError } = await supabase
         .from("payments_made")
@@ -148,7 +145,6 @@ const AddPaymentMadeModal = ({ isOpen, onClose, invoice, onSaved }) => {
           client_name:      selectedInvoice?.client_name || invoice?.client_name || null,
           expense_head:     invoice?.pay_head || null,
           transfer_amount:  isBillable ? numAmount : 0,
-          software_entry_id: softwareEntry.id,
         }])
         .select()
         .single();

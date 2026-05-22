@@ -708,7 +708,7 @@ const AddPaymentReceivedModal = ({
                             />
                             <datalist id="clients-list">
                               {clients.map((c, i) => (
-                                <option key={i} value={c} />
+                                <option key={`${c || "client"}-${i}`} value={c} />
                               ))}
                             </datalist>
                             <ErrorMessage error={errors.client} />

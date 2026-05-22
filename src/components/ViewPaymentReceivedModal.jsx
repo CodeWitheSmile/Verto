@@ -43,8 +43,18 @@ const fmtDate = (d) =>
     : "—";
 
 const MONTH_NAMES = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
 ];
 
 const getMonthKey = (dateStr) => {
@@ -87,8 +97,14 @@ const exportToExcel = (rows) => {
   const invoiceRows = rows.filter((r) => r._type === "invoice");
   const advanceRows = rows.filter((r) => r._type === "advance");
   const totalAmount = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
-  const invoiceTotal = invoiceRows.reduce((s, r) => s + Number(r.amount || 0), 0);
-  const advanceTotal = advanceRows.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const invoiceTotal = invoiceRows.reduce(
+    (s, r) => s + Number(r.amount || 0),
+    0
+  );
+  const advanceTotal = advanceRows.reduce(
+    (s, r) => s + Number(r.amount || 0),
+    0
+  );
 
   const summaryData = [
     ["PAYMENT RECEIVED — SUMMARY REPORT"],
@@ -108,9 +124,18 @@ const exportToExcel = (rows) => {
   summaryWs["!cols"] = [{ wch: 28 }, { wch: 22 }];
 
   const headers = [
-    "#", "Type", "Payment Ref", "Invoice Number", "Client",
-    "Ledger", "Entity", "Department", "Amount (₹)", "Payment Date",
-    "Bank", "Remarks",
+    "#",
+    "Type",
+    "Payment Ref",
+    "Invoice Number",
+    "Client",
+    "Ledger",
+    "Entity",
+    "Department",
+    "Amount (₹)",
+    "Payment Date",
+    "Bank",
+    "Remarks",
   ];
   const detail = rows.map((r, i) => [
     i + 1,
@@ -129,14 +154,26 @@ const exportToExcel = (rows) => {
 
   const detailWs = XLSX.utils.aoa_to_sheet([headers, ...detail]);
   detailWs["!cols"] = [
-    { wch: 4 }, { wch: 10 }, { wch: 18 }, { wch: 18 }, { wch: 22 },
-    { wch: 18 }, { wch: 20 }, { wch: 16 }, { wch: 14 }, { wch: 14 },
-    { wch: 20 }, { wch: 28 },
+    { wch: 4 },
+    { wch: 10 },
+    { wch: 18 },
+    { wch: 18 },
+    { wch: 22 },
+    { wch: 18 },
+    { wch: 20 },
+    { wch: 16 },
+    { wch: 14 },
+    { wch: 14 },
+    { wch: 20 },
+    { wch: 28 },
   ];
 
   XLSX.utils.book_append_sheet(wb, detailWs, "Payment Details");
   XLSX.utils.book_append_sheet(wb, summaryWs, "Summary");
-  XLSX.writeFile(wb, `Payments_Received_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  XLSX.writeFile(
+    wb,
+    `Payments_Received_${new Date().toISOString().slice(0, 10)}.xlsx`
+  );
 };
 
 /* ─────────────────────────────────────────────
@@ -146,9 +183,15 @@ const exportMonthlyReport = (reportData) => {
   const wb = XLSX.utils.book_new();
 
   const headers = [
-    "Month", "Client", "Invoice Payments (₹)", "Advance Received (₹)",
-    "Total Received (₹)", "Invoiced Amount (₹)", "Pending Amount (₹)",
-    "Invoice Count", "Advance Count",
+    "Month",
+    "Client",
+    "Invoice Payments (₹)",
+    "Advance Received (₹)",
+    "Total Received (₹)",
+    "Invoiced Amount (₹)",
+    "Pending Amount (₹)",
+    "Invoice Count",
+    "Advance Count",
   ];
 
   const rows = [];
@@ -170,12 +213,22 @@ const exportMonthlyReport = (reportData) => {
 
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
   ws["!cols"] = [
-    { wch: 14 }, { wch: 24 }, { wch: 22 }, { wch: 22 },
-    { wch: 22 }, { wch: 20 }, { wch: 20 }, { wch: 16 }, { wch: 16 },
+    { wch: 14 },
+    { wch: 24 },
+    { wch: 22 },
+    { wch: 22 },
+    { wch: 22 },
+    { wch: 20 },
+    { wch: 20 },
+    { wch: 16 },
+    { wch: 16 },
   ];
 
   XLSX.utils.book_append_sheet(wb, ws, "Monthly Client Report");
-  XLSX.writeFile(wb, `Monthly_Client_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  XLSX.writeFile(
+    wb,
+    `Monthly_Client_Report_${new Date().toISOString().slice(0, 10)}.xlsx`
+  );
 };
 
 /* ─────────────────────────────────────────────
@@ -192,7 +245,7 @@ const MonthlyReportTab = ({ rows, invoices }) => {
     // Map invoiceId → invoiced amount from invoices list (if available)
     const invoiceAmtMap = {};
     (invoices || []).forEach((inv) => {
-      invoiceAmtMap[inv.id] = Number(inv.total_amount || inv.grand_total || 0);
+      invoiceAmtMap[inv.id] = Number(inv.receivable_amount || 0);
     });
 
     // Group rows
@@ -236,7 +289,12 @@ const MonthlyReportTab = ({ rows, invoices }) => {
       .sort((a, b) => b.localeCompare(a))
       .map((mKey) => {
         const clients = Object.values(monthMap[mKey])
-          .sort((a, b) => b.invoiceReceived + b.advanceReceived - (a.invoiceReceived + a.advanceReceived))
+          .sort(
+            (a, b) =>
+              b.invoiceReceived +
+              b.advanceReceived -
+              (a.invoiceReceived + a.advanceReceived)
+          )
           .map((c) => ({
             ...c,
             totalReceived: c.invoiceReceived + c.advanceReceived,
@@ -267,9 +325,10 @@ const MonthlyReportTab = ({ rows, invoices }) => {
       .filter((m) => filterMonth === "All" || m.month === filterMonth)
       .map((m) => ({
         ...m,
-        clients: m.clients.filter((c) =>
-          !filterClient ||
-          c.client_name.toLowerCase().includes(filterClient.toLowerCase())
+        clients: m.clients.filter(
+          (c) =>
+            !filterClient ||
+            c.client_name.toLowerCase().includes(filterClient.toLowerCase())
         ),
       }))
       .filter((m) => m.clients.length > 0);
@@ -300,8 +359,12 @@ const MonthlyReportTab = ({ rows, invoices }) => {
         <div className="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center">
           <BarChart2 size={24} className="text-emerald-300" />
         </div>
-        <p className="text-sm text-slate-800 font-medium">No data to generate report</p>
-        <p className="text-xs text-slate-500">Add payments to see monthly client-wise report</p>
+        <p className="text-sm text-slate-800 font-medium">
+          No data to generate report
+        </p>
+        <p className="text-xs text-slate-500">
+          Add payments to see monthly client-wise report
+        </p>
       </div>
     );
   }
@@ -322,14 +385,19 @@ const MonthlyReportTab = ({ rows, invoices }) => {
             className="text-xs font-semibold border border-slate-200 rounded-lg px-2.5 py-1.5 text-black bg-white focus:outline-none focus:border-emerald-500"
           >
             <option value="All">All Months</option>
-            {allMonths.map((m) => (
-              <option key={m} value={m}>{m}</option>
+            {allMonths.map((m, i) => (
+              <option key={`${m || "month"}-${i}`} value={m}>
+                {m}
+              </option>
             ))}
           </select>
         </div>
 
         <div className="relative">
-          <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <Search
+            size={12}
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+          />
           <input
             type="text"
             placeholder="Filter by client…"
@@ -345,7 +413,11 @@ const MonthlyReportTab = ({ rows, invoices }) => {
           className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-all disabled:opacity-50"
           style={{ background: "linear-gradient(135deg, #065f46, #059669)" }}
         >
-          {exporting ? <RefreshCw size={12} className="animate-spin" /> : <Download size={12} />}
+          {exporting ? (
+            <RefreshCw size={12} className="animate-spin" />
+          ) : (
+            <Download size={12} />
+          )}
           Export Report
         </button>
       </div>
@@ -353,13 +425,35 @@ const MonthlyReportTab = ({ rows, invoices }) => {
       {/* Grand summary bar */}
       <div className="flex-shrink-0 grid grid-cols-3 gap-0 border-b border-slate-200">
         {[
-          { label: "Total Received", value: fmt(grandTotal), color: "text-emerald-700", bg: "bg-emerald-50" },
-          { label: "Total Pending", value: fmt(grandPending), color: "text-rose-700", bg: "bg-rose-50" },
-          { label: "Months Shown", value: filtered.length, color: "text-slate-700", bg: "bg-white" },
+          {
+            label: "Total Received",
+            value: fmt(grandTotal),
+            color: "text-emerald-700",
+            bg: "bg-emerald-50",
+          },
+          {
+            label: "Total Pending",
+            value: fmt(grandPending),
+            color: "text-rose-700",
+            bg: "bg-rose-50",
+          },
+          {
+            label: "Months Shown",
+            value: filtered.length,
+            color: "text-slate-700",
+            bg: "bg-white",
+          },
         ].map(({ label, value, color, bg }) => (
-          <div key={label} className={`${bg} px-5 py-3 border-r last:border-r-0 border-slate-200`}>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</p>
-            <p className={`text-lg font-bold ${color} leading-tight mt-0.5`}>{value}</p>
+          <div
+            key={label}
+            className={`${bg} px-5 py-3 border-r last:border-r-0 border-slate-200`}
+          >
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+              {label}
+            </p>
+            <p className={`text-lg font-bold ${color} leading-tight mt-0.5`}>
+              {value}
+            </p>
           </div>
         ))}
       </div>
@@ -376,25 +470,38 @@ const MonthlyReportTab = ({ rows, invoices }) => {
                 className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 transition-colors group"
               >
                 <div className="w-6 h-6 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
-                  {isOpen
-                    ? <ChevronDown size={13} className="text-emerald-700" />
-                    : <ChevronRight size={13} className="text-emerald-700" />}
+                  {isOpen ? (
+                    <ChevronDown size={13} className="text-emerald-700" />
+                  ) : (
+                    <ChevronRight size={13} className="text-emerald-700" />
+                  )}
                 </div>
                 <div className="flex-1 flex items-center gap-3 min-w-0">
-                  <span className="font-bold text-sm text-black">{monthData.month}</span>
+                  <span className="font-bold text-sm text-black">
+                    {monthData.month}
+                  </span>
                   <span className="text-[10px] text-slate-400 font-semibold">
-                    {monthData.clients.length} client{monthData.clients.length !== 1 ? "s" : ""}
+                    {monthData.clients.length} client
+                    {monthData.clients.length !== 1 ? "s" : ""}
                   </span>
                 </div>
                 <div className="flex items-center gap-6 text-right">
                   <div>
-                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Received</p>
-                    <p className="text-sm font-bold text-emerald-700">{fmt(monthData.monthTotal)}</p>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
+                      Received
+                    </p>
+                    <p className="text-sm font-bold text-emerald-700">
+                      {fmt(monthData.monthTotal)}
+                    </p>
                   </div>
                   {monthData.monthPending > 0 && (
                     <div>
-                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Pending</p>
-                      <p className="text-sm font-bold text-rose-600">{fmt(monthData.monthPending)}</p>
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
+                        Pending
+                      </p>
+                      <p className="text-sm font-bold text-rose-600">
+                        {fmt(monthData.monthPending)}
+                      </p>
                     </div>
                   )}
                 </div>
@@ -406,7 +513,16 @@ const MonthlyReportTab = ({ rows, invoices }) => {
                   <table className="w-full text-xs border-collapse">
                     <thead>
                       <tr className="border-b border-slate-200">
-                        {["Client", "Type Breakdown", "Invoice Received", "Advance Received", "Total Received", "Invoiced Amount", "Pending", "Status"].map((h) => (
+                        {[
+                          "Client",
+                          "Type Breakdown",
+                          "Invoice Received",
+                          "Advance Received",
+                          "Total Received",
+                          "Invoiced Amount",
+                          "Pending",
+                          "Status",
+                        ].map((h) => (
                           <th
                             key={h}
                             className="px-4 py-2.5 text-left text-[9px] font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap bg-slate-100"
@@ -419,17 +535,25 @@ const MonthlyReportTab = ({ rows, invoices }) => {
                     <tbody>
                       {monthData.clients.map((c, i) => {
                         const isPaid = c.totalInvoiced > 0 && c.pending === 0;
-                        const isPartial = c.totalInvoiced > 0 && c.pending > 0 && c.invoiceReceived > 0;
-                        const isAdvOnly = c.totalInvoiced === 0 && c.advanceReceived > 0;
+                        const isPartial =
+                          c.totalInvoiced > 0 &&
+                          c.pending > 0 &&
+                          c.invoiceReceived > 0;
+                        const isAdvOnly =
+                          c.totalInvoiced === 0 && c.advanceReceived > 0;
 
                         return (
                           <tr
-                            key={c.client_name}
-                            className={`border-b border-slate-100 ${i % 2 === 0 ? "bg-white" : "bg-slate-50/40"} hover:bg-emerald-50/40 transition-colors`}
+                            key={`${c.client_name}-${i}`}
+                            className={`border-b border-slate-100 ${
+                              i % 2 === 0 ? "bg-white" : "bg-slate-50/40"
+                            } hover:bg-emerald-50/40 transition-colors`}
                           >
                             {/* Client */}
                             <td className="px-4 py-3 font-semibold text-black max-w-[160px]">
-                              <p className="truncate" title={c.client_name}>{c.client_name}</p>
+                              <p className="truncate" title={c.client_name}>
+                                {c.client_name}
+                              </p>
                             </td>
 
                             {/* Type breakdown badges */}
@@ -452,15 +576,31 @@ const MonthlyReportTab = ({ rows, invoices }) => {
 
                             {/* Invoice Received */}
                             <td className="px-4 py-3 text-right">
-                              <span className={`font-bold ${c.invoiceReceived > 0 ? "text-emerald-700" : "text-slate-400"}`}>
-                                {c.invoiceReceived > 0 ? fmt(c.invoiceReceived) : "—"}
+                              <span
+                                className={`font-bold ${
+                                  c.invoiceReceived > 0
+                                    ? "text-emerald-700"
+                                    : "text-slate-400"
+                                }`}
+                              >
+                                {c.invoiceReceived > 0
+                                  ? fmt(c.invoiceReceived)
+                                  : "—"}
                               </span>
                             </td>
 
                             {/* Advance Received */}
                             <td className="px-4 py-3 text-right">
-                              <span className={`font-bold ${c.advanceReceived > 0 ? "text-teal-700" : "text-slate-400"}`}>
-                                {c.advanceReceived > 0 ? fmt(c.advanceReceived) : "—"}
+                              <span
+                                className={`font-bold ${
+                                  c.advanceReceived > 0
+                                    ? "text-teal-700"
+                                    : "text-slate-400"
+                                }`}
+                              >
+                                {c.advanceReceived > 0
+                                  ? fmt(c.advanceReceived)
+                                  : "—"}
                               </span>
                             </td>
 
@@ -473,14 +613,28 @@ const MonthlyReportTab = ({ rows, invoices }) => {
 
                             {/* Invoiced Amount */}
                             <td className="px-4 py-3 text-right">
-                              <span className={c.totalInvoiced > 0 ? "text-black font-semibold" : "text-slate-400"}>
-                                {c.totalInvoiced > 0 ? fmt(c.totalInvoiced) : "—"}
+                              <span
+                                className={
+                                  c.totalInvoiced > 0
+                                    ? "text-black font-semibold"
+                                    : "text-slate-400"
+                                }
+                              >
+                                {c.totalInvoiced > 0
+                                  ? fmt(c.totalInvoiced)
+                                  : "—"}
                               </span>
                             </td>
 
                             {/* Pending */}
                             <td className="px-4 py-3 text-right">
-                              <span className={`font-bold ${c.pending > 0 ? "text-rose-600" : "text-slate-400"}`}>
+                              <span
+                                className={`font-bold ${
+                                  c.pending > 0
+                                    ? "text-rose-600"
+                                    : "text-slate-400"
+                                }`}
+                              >
                                 {c.pending > 0 ? fmt(c.pending) : "—"}
                               </span>
                             </td>
@@ -503,7 +657,9 @@ const MonthlyReportTab = ({ rows, invoices }) => {
                                 </span>
                               )}
                               {!isPaid && !isPartial && !isAdvOnly && (
-                                <span className="text-slate-400 text-[9px]">—</span>
+                                <span className="text-slate-400 text-[9px]">
+                                  —
+                                </span>
                               )}
                             </td>
                           </tr>
@@ -513,7 +669,10 @@ const MonthlyReportTab = ({ rows, invoices }) => {
 
                     {/* Month subtotal */}
                     <tfoot>
-                      <tr style={{ background: "#f0fdf4" }} className="border-t-2 border-emerald-200">
+                      <tr
+                        style={{ background: "#f0fdf4" }}
+                        className="border-t-2 border-emerald-200"
+                      >
                         <td className="px-4 py-2.5" colSpan={2}>
                           <span className="text-[10px] font-bold text-emerald-900 uppercase tracking-widest">
                             {monthData.month} Total
@@ -521,12 +680,22 @@ const MonthlyReportTab = ({ rows, invoices }) => {
                         </td>
                         <td className="px-4 py-2.5 text-right">
                           <span className="text-xs font-bold text-emerald-700">
-                            {fmt(monthData.clients.reduce((s, c) => s + c.invoiceReceived, 0))}
+                            {fmt(
+                              monthData.clients.reduce(
+                                (s, c) => s + c.invoiceReceived,
+                                0
+                              )
+                            )}
                           </span>
                         </td>
                         <td className="px-4 py-2.5 text-right">
                           <span className="text-xs font-bold text-teal-700">
-                            {fmt(monthData.clients.reduce((s, c) => s + c.advanceReceived, 0))}
+                            {fmt(
+                              monthData.clients.reduce(
+                                (s, c) => s + c.advanceReceived,
+                                0
+                              )
+                            )}
                           </span>
                         </td>
                         <td className="px-4 py-2.5 text-right">
@@ -541,7 +710,9 @@ const MonthlyReportTab = ({ rows, invoices }) => {
                         </td>
                         <td className="px-4 py-2.5 text-right">
                           <span className="text-xs font-bold text-rose-600">
-                            {monthData.monthPending > 0 ? fmt(monthData.monthPending) : "—"}
+                            {monthData.monthPending > 0
+                              ? fmt(monthData.monthPending)
+                              : "—"}
                           </span>
                         </td>
                         <td />
@@ -561,12 +732,7 @@ const MonthlyReportTab = ({ rows, invoices }) => {
 /* ─────────────────────────────────────────────
    Main Component
 ───────────────────────────────────────────── */
-const ViewPaymentReceivedModal = ({
-  isOpen,
-  onClose,
-  invoice,
-  onRefresh,
-}) => {
+const ViewPaymentReceivedModal = ({ isOpen, onClose, invoice, onRefresh }) => {
   const [rows, setRows] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -634,7 +800,9 @@ const ViewPaymentReceivedModal = ({
           .from("bank_master")
           .select("id, bank_name");
         const banksMap = {};
-        (banksData || []).forEach((b) => { banksMap[b.id] = b.bank_name; });
+        (banksData || []).forEach((b) => {
+          banksMap[b.id] = b.bank_name;
+        });
 
         const { data: advData, error: advErr } = await supabase
           .from("advance_payments")
@@ -662,7 +830,7 @@ const ViewPaymentReceivedModal = ({
         // Fetch invoices for pending calculation in monthly report
         const { data: invMaster } = await supabase
           .from("invoices")
-          .select("id, total_amount, grand_total");
+          .select("id, receivable_amount");
         allInvoices = invMaster || [];
       }
 
@@ -850,7 +1018,8 @@ const ViewPaymentReceivedModal = ({
           <div
             className="relative px-6 py-5 flex-shrink-0"
             style={{
-              background: "linear-gradient(135deg, #022c22 0%, #065f46 50%, #059669 100%)",
+              background:
+                "linear-gradient(135deg, #022c22 0%, #065f46 50%, #059669 100%)",
             }}
           >
             <div className="absolute top-0 right-0 w-44 h-44 bg-white/5 rounded-full -translate-y-14 translate-x-14" />
@@ -899,12 +1068,24 @@ const ViewPaymentReceivedModal = ({
             <div className="relative mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
                 { label: "Records", value: filtered.length, icon: Layers },
-                { label: "Total Received", value: fmt(totalAmount), icon: TrendingUp },
-                { label: "Invoice Payments", value: fmt(invoiceTotal), icon: FileText },
-                { label: "Advance Pending", value: fmt(advanceTotal), icon: ArrowDownCircle },
-              ].map(({ label, value, icon: Icon }) => (
+                {
+                  label: "Total Received",
+                  value: fmt(totalAmount),
+                  icon: TrendingUp,
+                },
+                {
+                  label: "Invoice Payments",
+                  value: fmt(invoiceTotal),
+                  icon: FileText,
+                },
+                {
+                  label: "Advance Pending",
+                  value: fmt(advanceTotal),
+                  icon: ArrowDownCircle,
+                },
+              ].map(({ label, value, color, bg, icon: Icon }, i) => (
                 <div
-                  key={label}
+                  key={`${label}-${i}`}
                   className="bg-white/10 border border-white/15 rounded-2xl px-3 py-2.5 flex items-center gap-2"
                 >
                   <div className="w-6 h-6 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
@@ -933,7 +1114,9 @@ const ViewPaymentReceivedModal = ({
                     {invoice.invoice_number || invoice.id}
                   </p>
                   {invoice.client_name && (
-                    <p className="text-emerald-300 text-xs mt-0.5">{invoice.client_name}</p>
+                    <p className="text-emerald-300 text-xs mt-0.5">
+                      {invoice.client_name}
+                    </p>
                   )}
                 </div>
                 {invoice.receivable_amount != null && (
@@ -952,7 +1135,11 @@ const ViewPaymentReceivedModal = ({
           <div className="flex-shrink-0 flex items-center gap-1 px-5 pt-3 pb-0 bg-white border-b border-slate-200">
             {[
               { id: "payments", label: "Payment Details", icon: FileText },
-              { id: "monthly", label: "Monthly Client Report", icon: BarChart2 },
+              {
+                id: "monthly",
+                label: "Monthly Client Report",
+                icon: BarChart2,
+              },
             ].map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
@@ -989,9 +1176,9 @@ const ViewPaymentReceivedModal = ({
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <Filter size={12} className="text-slate-400" />
-                  {["All", "Invoice", "Advance"].map((t) => (
+                  {["All", "Invoice", "Advance"].map((t, i) => (
                     <button
-                      key={t}
+                      key={`${t}-${i}`}
                       onClick={() => setFilterType(t)}
                       className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
                         filterType === t
@@ -1017,16 +1204,29 @@ const ViewPaymentReceivedModal = ({
                     <div className="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center">
                       <AlertCircle size={24} className="text-emerald-300" />
                     </div>
-                    <p className="text-sm text-slate-800 font-medium">No payment records found</p>
-                    <p className="text-xs text-slate-600">Try adjusting filters or search</p>
+                    <p className="text-sm text-slate-800 font-medium">
+                      No payment records found
+                    </p>
+                    <p className="text-xs text-slate-600">
+                      Try adjusting filters or search
+                    </p>
                   </div>
                 ) : (
                   <table className="min-w-full text-sm border-collapse">
                     <thead className="sticky top-0 z-10">
                       <tr>
                         {[
-                          "Type", "Ref No.", "Invoice", "Client", "Ledger",
-                          "Entity / Dept", "Amount", "Date", "Bank", "Remarks", "Actions",
+                          "Type",
+                          "Ref No.",
+                          "Invoice",
+                          "Client",
+                          "Ledger",
+                          "Entity / Dept",
+                          "Amount",
+                          "Date",
+                          "Bank",
+                          "Remarks",
+                          "Actions",
                         ].map((h) => (
                           <th
                             key={h}
@@ -1041,8 +1241,12 @@ const ViewPaymentReceivedModal = ({
 
                     <tbody>
                       {filtered.map((r, index) => {
-                        const isEditing = editingRow?.id === r.id && editingRow?._type === r._type;
-                        const isDeleting = deletingRow?.id === r.id && deletingRow?._type === r._type;
+                        const isEditing =
+                          editingRow?.id === r.id &&
+                          editingRow?._type === r._type;
+                        const isDeleting =
+                          deletingRow?.id === r.id &&
+                          deletingRow?._type === r._type;
 
                         return (
                           <React.Fragment key={`${r._type}-${r.id}`}>
@@ -1068,13 +1272,18 @@ const ViewPaymentReceivedModal = ({
                               <td className="px-4 py-3 whitespace-nowrap">
                                 {r.invoice_number ? (
                                   <div className="flex items-center gap-1.5">
-                                    <FileText size={11} className="text-slate-500" />
+                                    <FileText
+                                      size={11}
+                                      className="text-slate-500"
+                                    />
                                     <span className="text-xs text-black font-semibold">
                                       {r.invoice_number}
                                     </span>
                                   </div>
                                 ) : (
-                                  <span className="text-slate-400 text-xs">—</span>
+                                  <span className="text-slate-400 text-xs">
+                                    —
+                                  </span>
                                 )}
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap max-w-[150px]">
@@ -1090,7 +1299,9 @@ const ViewPaymentReceivedModal = ({
                                 </div>
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap hidden lg:table-cell">
-                                <span className="text-xs text-black">{r.ledger_name || "—"}</span>
+                                <span className="text-xs text-black">
+                                  {r.ledger_name || "—"}
+                                </span>
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap">
                                 <div>
@@ -1100,10 +1311,14 @@ const ViewPaymentReceivedModal = ({
                                     </span>
                                   )}
                                   {r.department_name && (
-                                    <p className="text-[10px] text-black mt-0.5">{r.department_name}</p>
+                                    <p className="text-[10px] text-black mt-0.5">
+                                      {r.department_name}
+                                    </p>
                                   )}
                                   {!r.entity_name && !r.department_name && (
-                                    <span className="text-slate-400 text-xs">—</span>
+                                    <span className="text-slate-400 text-xs">
+                                      —
+                                    </span>
                                   )}
                                 </div>
                               </td>
@@ -1114,25 +1329,44 @@ const ViewPaymentReceivedModal = ({
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap">
                                 <div className="flex items-center gap-1.5">
-                                  <Calendar size={11} className="text-slate-500" />
-                                  <span className="text-xs text-black">{fmtDate(r.payment_date)}</span>
+                                  <Calendar
+                                    size={11}
+                                    className="text-slate-500"
+                                  />
+                                  <span className="text-xs text-black">
+                                    {fmtDate(r.payment_date)}
+                                  </span>
                                 </div>
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap">
                                 <div className="flex items-center gap-1.5">
-                                  <Building2 size={11} className="text-slate-500" />
-                                  <span className="text-xs text-black">{r.bank_name || "—"}</span>
+                                  <Building2
+                                    size={11}
+                                    className="text-slate-500"
+                                  />
+                                  <span className="text-xs text-black">
+                                    {r.bank_name || "—"}
+                                  </span>
                                 </div>
                               </td>
                               <td className="px-4 py-3 max-w-[160px]">
-                                <span className="text-xs text-black truncate block" title={r.remarks}>
-                                  {r.remarks || <span className="text-slate-400">—</span>}
+                                <span
+                                  className="text-xs text-black truncate block"
+                                  title={r.remarks}
+                                >
+                                  {r.remarks || (
+                                    <span className="text-slate-400">—</span>
+                                  )}
                                 </span>
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap">
                                 <div className="flex items-center gap-1.5">
                                   <button
-                                    onClick={() => isEditing ? setEditingRow(null) : startEdit(r)}
+                                    onClick={() =>
+                                      isEditing
+                                        ? setEditingRow(null)
+                                        : startEdit(r)
+                                    }
                                     className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
                                       isEditing
                                         ? "bg-slate-100 text-slate-700"
@@ -1143,7 +1377,11 @@ const ViewPaymentReceivedModal = ({
                                     {isEditing ? "Cancel" : "Edit"}
                                   </button>
                                   <button
-                                    onClick={() => isDeleting ? setDeletingRow(null) : setDeletingRow(r)}
+                                    onClick={() =>
+                                      isDeleting
+                                        ? setDeletingRow(null)
+                                        : setDeletingRow(r)
+                                    }
                                     className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
                                       isDeleting
                                         ? "bg-slate-100 text-slate-700"
@@ -1167,29 +1405,41 @@ const ViewPaymentReceivedModal = ({
                                     </p>
                                     <div className="grid grid-cols-3 gap-4">
                                       <div>
-                                        <label className="text-xs font-semibold text-black block mb-1">Amount (₹)</label>
+                                        <label className="text-xs font-semibold text-black block mb-1">
+                                          Amount (₹)
+                                        </label>
                                         <input
                                           type="number"
                                           value={editAmount}
-                                          onChange={(e) => setEditAmount(e.target.value)}
+                                          onChange={(e) =>
+                                            setEditAmount(e.target.value)
+                                          }
                                           className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-emerald-500"
                                         />
                                       </div>
                                       <div>
-                                        <label className="text-xs font-semibold text-black block mb-1">Payment Date</label>
+                                        <label className="text-xs font-semibold text-black block mb-1">
+                                          Payment Date
+                                        </label>
                                         <input
                                           type="date"
                                           value={editDate}
-                                          onChange={(e) => setEditDate(e.target.value)}
+                                          onChange={(e) =>
+                                            setEditDate(e.target.value)
+                                          }
                                           className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-emerald-500"
                                         />
                                       </div>
                                       <div>
-                                        <label className="text-xs font-semibold text-black block mb-1">Remarks</label>
+                                        <label className="text-xs font-semibold text-black block mb-1">
+                                          Remarks
+                                        </label>
                                         <input
                                           type="text"
                                           value={editRemarks}
-                                          onChange={(e) => setEditRemarks(e.target.value)}
+                                          onChange={(e) =>
+                                            setEditRemarks(e.target.value)
+                                          }
                                           className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-emerald-500"
                                         />
                                       </div>
@@ -1206,7 +1456,12 @@ const ViewPaymentReceivedModal = ({
                                         disabled={saving}
                                         className="px-5 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60 flex items-center gap-2"
                                       >
-                                        {saving && <RefreshCw size={13} className="animate-spin" />}
+                                        {saving && (
+                                          <RefreshCw
+                                            size={13}
+                                            className="animate-spin"
+                                          />
+                                        )}
                                         {saving ? "Saving…" : "Save Changes"}
                                       </button>
                                     </div>
@@ -1221,12 +1476,17 @@ const ViewPaymentReceivedModal = ({
                                 <td colSpan={11} className="p-0">
                                   <div className="bg-rose-50 border-b border-rose-200 px-6 py-4 flex items-center justify-between">
                                     <div>
-                                      <p className="text-sm font-bold text-rose-900">Delete this payment?</p>
+                                      <p className="text-sm font-bold text-rose-900">
+                                        Delete this payment?
+                                      </p>
                                       <p className="text-xs text-rose-800 mt-0.5">
-                                        {fmt(r.amount)} · {fmtDate(r.payment_date)} · {r.payment_ref}
+                                        {fmt(r.amount)} ·{" "}
+                                        {fmtDate(r.payment_date)} ·{" "}
+                                        {r.payment_ref}
                                       </p>
                                       <p className="text-xs text-rose-700 mt-1">
-                                        This will update the outstanding amount on the invoice.
+                                        This will update the outstanding amount
+                                        on the invoice.
                                       </p>
                                     </div>
                                     <div className="flex items-center gap-3">
@@ -1241,7 +1501,12 @@ const ViewPaymentReceivedModal = ({
                                         disabled={deleting}
                                         className="px-5 py-2 bg-rose-600 text-white rounded-lg text-sm font-semibold hover:bg-rose-700 disabled:opacity-60 flex items-center gap-2"
                                       >
-                                        {deleting && <RefreshCw size={13} className="animate-spin" />}
+                                        {deleting && (
+                                          <RefreshCw
+                                            size={13}
+                                            className="animate-spin"
+                                          />
+                                        )}
                                         {deleting ? "Deleting…" : "Yes, Delete"}
                                       </button>
                                     </div>
@@ -1263,7 +1528,9 @@ const ViewPaymentReceivedModal = ({
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <span className="font-bold text-white text-base">{fmt(totalAmount)}</span>
+                          <span className="font-bold text-white text-base">
+                            {fmt(totalAmount)}
+                          </span>
                         </td>
                         <td colSpan={4} />
                       </tr>
@@ -1303,7 +1570,11 @@ const ViewPaymentReceivedModal = ({
                 boxShadow: "0 4px 14px rgba(5,150,105,0.3)",
               }}
             >
-              {exporting ? <RefreshCw size={13} className="animate-spin" /> : <Download size={13} />}
+              {exporting ? (
+                <RefreshCw size={13} className="animate-spin" />
+              ) : (
+                <Download size={13} />
+              )}
               Download Excel
             </button>
             <button
