@@ -18,13 +18,13 @@ import {
   TrendingDown,
   Users,
   Layers,
+  Pencil,
+  Save,
+  Trash2,
 } from "lucide-react";
-
 import supabase from "../lib/supabaseClient";
 
-/* ─────────────────────────────────────────────
-   Helpers
-───────────────────────────────────────────── */
+/* ─── Helpers ─────────────────────────────────────────────────────────────── */
 const fmt = (v) =>
   `₹ ${Number(v || 0).toLocaleString("en-IN", { minimumFractionDigits: 0 })}`;
 
@@ -48,57 +48,31 @@ const BoolPill = ({ value, yesLabel = "YES", noLabel = "NO" }) =>
     </span>
   );
 
-/* ─────────────────────────────────────────────
-   Excel Export
-───────────────────────────────────────────── */
+/* ─── Excel Export ─────────────────────────────────────────────────────────── */
 const exportToExcel = (rows) => {
   const wb = XLSX.utils.book_new();
+  const totalDue = rows.reduce((s, r) => s + Number(r.due_amount || 0), 0);
+  const totalTds = rows.reduce((s, r) => s + Number(r.tds_amount || 0), 0);
+  const totalTransfer = rows.reduce(
+    (s, r) => s + Number(r.transfer_amount || 0),
+    0
+  );
 
-  /* ── Summary sheet ── */
-  const totalDue      = rows.reduce((s, r) => s + Number(r.due_amount || 0), 0);
-  const totalTds      = rows.reduce((s, r) => s + Number(r.tds_amount || 0), 0);
-  const totalTransfer = rows.reduce((s, r) => s + Number(r.transfer_amount || 0), 0);
-  const billableCount = rows.filter((r) => r.is_billable).length;
-  const cashCount     = rows.filter((r) => r.petty_cash).length;
-
-  const summaryData = [
-    ["EXPENSE DATABASE — SUMMARY REPORT"],
-    ["Generated On", new Date().toLocaleString("en-IN")],
-    [],
-    ["OVERVIEW"],
-    ["Total Records",          rows.length],
-    ["Total Due Amount",       totalDue],
-    ["Total TDS",              totalTds],
-    ["Total Transfer Amount",  totalTransfer],
-    [],
-    ["BREAKDOWN"],
-    ["Billable Expenses",      billableCount],
-    ["Petty Cash Entries",     cashCount],
-  ];
-
-  const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
-  summaryWs["!cols"] = [{ wch: 28 }, { wch: 22 }];
-  if (summaryWs["A1"])
-    summaryWs["A1"].s = {
-      font:      { bold: true, sz: 16, color: { rgb: "7C2D12" } },
-      fill:      { fgColor: { rgb: "FFF7ED" } },
-      alignment: { horizontal: "left" },
-    };
-  ["A4", "A10"].forEach((addr) => {
-    if (summaryWs[addr])
-      summaryWs[addr].s = {
-        font: { bold: true, sz: 11, color: { rgb: "FFFFFF" } },
-        fill: { fgColor: { rgb: "C2410C" } },
-      };
-  });
-
-  /* ── Detail sheet ── */
   const headers = [
-    "#", "Client", "Entity", "Department", "Pay Head",
-    "Due Amount (₹)", "TDS (₹)", "Transfer (₹)",
-    "Payment Date", "Bank", "Billable", "Petty Cash", "Created At",
+    "#",
+    "Client",
+    "Entity",
+    "Department",
+    "Pay Head",
+    "Due Amount (₹)",
+    "TDS (₹)",
+    "Transfer (₹)",
+    "Payment Date",
+    "Bank",
+    "Billable",
+    "Cash",
+    "Created At",
   ];
-
   const detail = rows.map((r, i) => [
     i + 1,
     r.client_name || "—",
@@ -114,95 +88,122 @@ const exportToExcel = (rows) => {
     r.petty_cash ? "Yes" : "No",
     fmtDate(r.created_at),
   ]);
-
-  const detailWs = XLSX.utils.aoa_to_sheet([headers, ...detail]);
-
-  /* header row style */
-  const headerStyle = {
-    font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 10 },
-    fill:      { fgColor: { rgb: "7C2D12" } },
-    alignment: { horizontal: "center", vertical: "center", wrapText: true },
-    border:    { bottom: { style: "medium", color: { rgb: "EA580C" } } },
-  };
-  headers.forEach((_, ci) => {
-    const addr = XLSX.utils.encode_cell({ r: 0, c: ci });
-    if (!detailWs[addr]) detailWs[addr] = { v: headers[ci], t: "s" };
-    detailWs[addr].s = headerStyle;
-  });
-
-  /* data rows */
-  const amountCols = [5, 6, 7];
-  detail.forEach((row, ri) => {
-    const isAlt = ri % 2 === 0;
-    row.forEach((_, ci) => {
-      const addr = XLSX.utils.encode_cell({ r: ri + 1, c: ci });
-      if (!detailWs[addr]) return;
-      detailWs[addr].s = {
-        fill:      { fgColor: { rgb: isAlt ? "FFF7ED" : "FFFFFF" } },
-        alignment: {
-          horizontal: amountCols.includes(ci) ? "right" : ci === 0 ? "center" : "left",
-          vertical: "center",
-        },
-        font:  { color: { rgb: amountCols.includes(ci) ? "7C2D12" : "1E293B" }, bold: amountCols.includes(ci) },
-        border:{ bottom: { style: "thin", color: { rgb: "FED7AA" } } },
-      };
-      if (amountCols.includes(ci)) detailWs[addr].z = "#,##0";
-    });
-  });
-
-  /* totals row */
-  const totalRow = detail.length + 1;
-  const totalsData = ["", "TOTAL", "", "", "",
-    totalDue, totalTds, totalTransfer,
-    "", "", "", "", "",
-  ];
-  totalsData.forEach((v, ci) => {
-    const addr = XLSX.utils.encode_cell({ r: totalRow, c: ci });
-    detailWs[addr] = {
-      v,
-      t: typeof v === "number" ? "n" : "s",
-      s: {
-        font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 10 },
-        fill:      { fgColor: { rgb: "7C2D12" } },
-        alignment: { horizontal: amountCols.includes(ci) ? "right" : "left" },
-        border:    { top: { style: "medium", color: { rgb: "EA580C" } } },
-      },
-    };
-    if (amountCols.includes(ci)) detailWs[addr].z = "#,##0";
-  });
-
-  detailWs["!ref"] = XLSX.utils.encode_range({ r: 0, c: 0 }, { r: totalRow, c: 12 });
-  detailWs["!cols"] = [
-    { wch: 4 }, { wch: 20 }, { wch: 14 }, { wch: 16 }, { wch: 18 },
-    { wch: 14 }, { wch: 12 }, { wch: 14 },
-    { wch: 14 }, { wch: 20 }, { wch: 10 }, { wch: 10 }, { wch: 14 },
-  ];
-  detailWs["!rows"] = [{ hpt: 30 }];
-
-  wb.Workbook = wb.Workbook || {};
-  wb.Workbook.Views = [{ activeTab: 0 }];
-  XLSX.utils.book_append_sheet(wb, detailWs, "Expense Details");
-  XLSX.utils.book_append_sheet(wb, summaryWs, "Summary");
+  const ws = XLSX.utils.aoa_to_sheet([
+    headers,
+    ...detail,
+    [
+      "",
+      "TOTAL",
+      "",
+      "",
+      "",
+      totalDue,
+      totalTds,
+      totalTransfer,
+      "",
+      "",
+      "",
+      "",
+      "",
+    ],
+  ]);
+  ws["!cols"] = [4, 20, 14, 16, 18, 14, 12, 14, 14, 20, 10, 10, 14].map(
+    (w) => ({ wch: w })
+  );
+  XLSX.utils.book_append_sheet(wb, ws, "Expenses");
   XLSX.writeFile(wb, `Expenses_${new Date().toISOString().slice(0, 10)}.xlsx`);
 };
 
-/* ─────────────────────────────────────────────
-   Main Component
-───────────────────────────────────────────── */
-const ExpenseViewModal = ({ open, onClose }) => {
-  const [loading, setLoading]     = useState(false);
-  const [rows, setRows]           = useState([]);
-  const [search, setSearch]       = useState("");
+/* ─── Confirm Delete Dialog ────────────────────────────────────────────────── */
+const ConfirmDeleteDialog = ({ row, onConfirm, onCancel }) => (
+  <motion.div
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    exit={{ opacity: 0 }}
+    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999999] flex items-center justify-center p-4"
+    onClick={onCancel}
+  >
+    <motion.div
+      initial={{ scale: 0.9, y: 20 }}
+      animate={{ scale: 1, y: 0 }}
+      exit={{ scale: 0.9 }}
+      onClick={(e) => e.stopPropagation()}
+      className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6"
+    >
+      <div className="flex items-center justify-center w-12 h-12 bg-rose-100 rounded-full mx-auto mb-4">
+        <Trash2 className="w-6 h-6 text-rose-600" />
+      </div>
+      <h3 className="text-lg font-bold text-gray-900 text-center">
+        Delete Expense?
+      </h3>
+      <p className="text-sm text-gray-500 text-center mt-2">
+        This will delete the payment record, bank entry, software entry and
+        reverse any billable invoice impact.
+        <br />
+        <span className="font-semibold text-gray-700 text-xs">
+          {row?.pay_head} · {row?.department} · {fmt(row?.due_amount)}
+        </span>
+      </p>
+      <div className="flex gap-3 mt-6">
+        <button
+          onClick={onCancel}
+          className="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={onConfirm}
+          className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm font-medium transition-colors"
+        >
+          Yes, Delete
+        </button>
+      </div>
+    </motion.div>
+  </motion.div>
+);
+
+/* ─── Main Component ───────────────────────────────────────────────────────── */
+const ExpenseViewModal = ({ open, onClose, onSaved }) => {
+  const [loading, setLoading] = useState(false);
+  const [rows, setRows] = useState([]);
+  const [search, setSearch] = useState("");
   const [filterBill, setFilterBill] = useState("All");
   const [filterCash, setFilterCash] = useState("All");
   const [exporting, setExporting] = useState(false);
+
+  // ── Edit state ──────────────────────────────────────────────────────────────
+  const [editRow, setEditRow] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  // ── Delete state ────────────────────────────────────────────────────────────
+  const [confirmRow, setConfirmRow] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+
+  // ── Toast state ─────────────────────────────────────────────────────────────
+  const [toast, setToast] = useState(null);
+
+  // ── Banks for edit dropdown ─────────────────────────────────────────────────
+  const [banks, setBanks] = useState([]);
+
+  const showToast = (msg, type = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   useEffect(() => {
     if (!open) return;
     setSearch("");
     setFilterBill("All");
     setFilterCash("All");
+    setEditRow(null);
+    setEditForm({});
+    setConfirmRow(null);
     fetchExpenses();
+    supabase
+      .from("bank_master")
+      .select("id, bank_name")
+      .then(({ data }) => setBanks(data || []));
   }, [open]);
 
   const fetchExpenses = async () => {
@@ -212,10 +213,10 @@ const ExpenseViewModal = ({ open, onClose }) => {
         .from("payment_made_view")
         .select("*")
         .order("created_at", { ascending: false });
-      if (error) { console.error(error); return; }
+      if (error) throw error;
       setRows(data || []);
     } catch (err) {
-      console.error(err);
+      showToast("Load failed: " + err.message, "error");
     } finally {
       setLoading(false);
     }
@@ -223,49 +224,137 @@ const ExpenseViewModal = ({ open, onClose }) => {
 
   if (!open) return null;
 
-  /* ── filtered rows ── */
+  /* ── Filtered rows ── */
   const filtered = rows.filter((r) => {
     const q = search.toLowerCase();
     const matchSearch =
       !q ||
-      (r.client_name  || "").toLowerCase().includes(q) ||
-      (r.entity       || "").toLowerCase().includes(q) ||
-      (r.department   || "").toLowerCase().includes(q) ||
-      (r.pay_head     || "").toLowerCase().includes(q) ||
-      (r.bank_name    || "").toLowerCase().includes(q);
-
+      [r.client_name, r.entity, r.department, r.pay_head, r.bank_name].some(
+        (v) => v?.toLowerCase().includes(q)
+      );
     const matchBill =
       filterBill === "All" ||
       (filterBill === "Billable" && r.is_billable) ||
       (filterBill === "Non-Billable" && !r.is_billable);
-
     const matchCash =
       filterCash === "All" ||
       (filterCash === "Cash" && r.petty_cash) ||
       (filterCash === "Non-Cash" && !r.petty_cash);
-
     return matchSearch && matchBill && matchCash;
   });
 
-  const totalDue      = filtered.reduce((s, r) => s + Number(r.due_amount || 0), 0);
-  const totalTransfer = filtered.reduce((s, r) => s + Number(r.transfer_amount || 0), 0);
-  const totalTds      = filtered.reduce((s, r) => s + Number(r.tds_amount || 0), 0);
+  const totalDue = filtered.reduce((s, r) => s + Number(r.due_amount || 0), 0);
+  const totalTransfer = filtered.reduce(
+    (s, r) => s + Number(r.transfer_amount || 0),
+    0
+  );
+  const totalTds = filtered.reduce((s, r) => s + Number(r.tds_amount || 0), 0);
 
-  const handleExport = () => {
-    setExporting(true);
+  /* ── Delete handler ── */
+  const handleDelete = async () => {
+    if (!confirmRow) return;
+    const id = confirmRow.id;
+    setConfirmRow(null);
+    setDeletingId(id);
     try {
-      exportToExcel(filtered);
-    } catch (error) {
-      console.error("Expense export failed:", error);
-      alert("Export failed. Check console for details.");
+      const { error } = await supabase.rpc("delete_payment_made_complete", {
+        p_payment_id: id,
+      });
+      if (error) throw error;
+      window.refreshDashboard?.();
+      onSaved?.();
+      await fetchExpenses();
+      showToast("Expense deleted & ERP synced ✅");
+    } catch (err) {
+      showToast("Delete failed: " + err.message, "error");
     } finally {
-      setExporting(false);
+      setDeletingId(null);
     }
   };
 
-  /* ─────────── RENDER ─────────── */
+  /* ── Edit save handler ── */
+  const handleSaveEdit = async () => {
+    if (!editRow) return;
+    setSavingEdit(true);
+    try {
+      const dueAmt = parseFloat(editForm.due_amount) || 0;
+      const tdsAmt = parseFloat(editForm.tds_amount) || 0;
+      const transAmt = Math.max(dueAmt - tdsAmt, 0);
+
+      const { error } = await supabase
+        .from("payments_made")
+        .update({
+          due_amount: dueAmt,
+          tds_amount: tdsAmt,
+          amount: dueAmt,
+          transfer_amount: transAmt,
+          payment_date: editForm.payment_date,
+          bank_id: editForm.bank_id || null,
+          payment_description: editForm.payment_description || null,
+          remarks: editForm.remarks || null,
+          department: editForm.department || null,
+        })
+        .eq("id", editRow.id);
+      if (error) throw error;
+
+      window.refreshDashboard?.();
+      onSaved?.();
+      await fetchExpenses();
+      showToast("Expense updated & bank synced ✅");
+      setEditRow(null);
+      setEditForm({});
+    } catch (err) {
+      showToast("Update failed: " + err.message, "error");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const DEPT_OPTIONS = [
+    "Common",
+    "OS",
+    "Temp",
+    "Rec",
+    "BD",
+    "Accts",
+    "HR",
+    "Admin",
+    "IT",
+    "Legal",
+    "Projects",
+    "Others",
+  ];
+
   return ReactDOM.createPortal(
     <AnimatePresence>
+      {/* Confirm delete dialog — renders above modal */}
+      {confirmRow && (
+        <ConfirmDeleteDialog
+          row={confirmRow}
+          onConfirm={handleDelete}
+          onCancel={() => setConfirmRow(null)}
+        />
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0 }}
+          className={`fixed bottom-6 right-6 z-[9999999] flex items-center gap-2 px-5 py-3 rounded-xl shadow-xl text-white text-sm font-medium ${
+            toast.type === "error" ? "bg-rose-600" : "bg-emerald-600"
+          }`}
+        >
+          {toast.type === "error" ? (
+            <AlertCircle size={14} />
+          ) : (
+            <CheckCircle size={14} />
+          )}
+          {toast.msg}
+        </motion.div>
+      )}
+
       <motion.div
         className="fixed inset-0 z-[999999] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
         initial={{ opacity: 0 }}
@@ -282,13 +371,11 @@ const ExpenseViewModal = ({ open, onClose }) => {
           <div
             className="relative px-6 py-5 flex-shrink-0"
             style={{
-              background: "linear-gradient(135deg, #431407 0%, #9a3412 50%, #ea580c 100%)",
+              background:
+                "linear-gradient(135deg, #431407 0%, #9a3412 50%, #ea580c 100%)",
             }}
           >
-            {/* blobs */}
             <div className="absolute top-0 right-0 w-48 h-48 bg-white/5 rounded-full -translate-y-16 translate-x-16" />
-            <div className="absolute bottom-0 left-20 w-24 h-24 bg-orange-400/10 rounded-full translate-y-10" />
-
             <div className="relative flex items-start justify-between">
               <div>
                 <div className="flex items-center gap-2 mb-1">
@@ -300,18 +387,28 @@ const ExpenseViewModal = ({ open, onClose }) => {
                   </h2>
                 </div>
                 <p className="text-orange-300 text-xs ml-11">
-                  SQL-style expense table · {filtered.length} records shown
+                  {filtered.length} records · edit & delete inline
                 </p>
               </div>
-
               <div className="flex items-center gap-2">
                 <button
-                  onClick={handleExport}
+                  onClick={() => {
+                    setExporting(true);
+                    try {
+                      exportToExcel(filtered);
+                    } finally {
+                      setExporting(false);
+                    }
+                  }}
                   disabled={exporting || filtered.length === 0}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-all disabled:opacity-40"
                 >
-                  {exporting ? <RefreshCw size={13} className="animate-spin" /> : <Download size={13} />}
-                  Export Excel
+                  {exporting ? (
+                    <RefreshCw size={13} className="animate-spin" />
+                  ) : (
+                    <Download size={13} />
+                  )}{" "}
+                  Export
                 </button>
                 <button
                   onClick={onClose}
@@ -321,14 +418,17 @@ const ExpenseViewModal = ({ open, onClose }) => {
                 </button>
               </div>
             </div>
-
-            {/* Stats bar */}
+            {/* Stats */}
             <div className="relative mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
-                { label: "Records",       value: filtered.length,     icon: Layers     },
-                { label: "Due Amount",    value: fmt(totalDue),        icon: TrendingDown },
-                { label: "TDS",           value: fmt(totalTds),        icon: Users      },
-                { label: "Transfer",      value: fmt(totalTransfer),   icon: Building2  },
+                { label: "Records", value: filtered.length, icon: Layers },
+                { label: "Due", value: fmt(totalDue), icon: TrendingDown },
+                { label: "TDS", value: fmt(totalTds), icon: Users },
+                {
+                  label: "Transfer",
+                  value: fmt(totalTransfer),
+                  icon: Building2,
+                },
               ].map(({ label, value, icon: Icon }) => (
                 <div
                   key={label}
@@ -338,8 +438,12 @@ const ExpenseViewModal = ({ open, onClose }) => {
                     <Icon size={12} className="text-orange-300" />
                   </div>
                   <div>
-                    <p className="text-[9px] text-orange-400 uppercase tracking-widest font-bold">{label}</p>
-                    <p className="text-white text-xs font-bold leading-none mt-0.5">{value}</p>
+                    <p className="text-[9px] text-orange-400 uppercase tracking-widest font-bold">
+                      {label}
+                    </p>
+                    <p className="text-white text-xs font-bold leading-none mt-0.5">
+                      {value}
+                    </p>
                   </div>
                 </div>
               ))}
@@ -348,9 +452,11 @@ const ExpenseViewModal = ({ open, onClose }) => {
 
           {/* ── FILTERS ── */}
           <div className="flex-shrink-0 px-5 pt-4 pb-3 border-b border-slate-100 space-y-3 bg-white">
-            {/* Search */}
             <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <Search
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+              />
               <input
                 type="text"
                 placeholder="Search client, entity, department, pay head, bank…"
@@ -359,8 +465,6 @@ const ExpenseViewModal = ({ open, onClose }) => {
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-400/20 transition-all"
               />
             </div>
-
-            {/* Filter pills */}
             <div className="flex items-center gap-2 flex-wrap">
               <Filter size={12} className="text-slate-400" />
               {["All", "Billable", "Non-Billable"].map((t) => (
@@ -402,20 +506,30 @@ const ExpenseViewModal = ({ open, onClose }) => {
               </div>
             ) : filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-3">
-                <div className="w-14 h-14 rounded-2xl bg-orange-50 flex items-center justify-center">
-                  <AlertCircle size={24} className="text-orange-300" />
-                </div>
-                <p className="text-sm text-slate-500 font-medium">No expense records found</p>
-                <p className="text-xs text-slate-400">Try adjusting filters or search</p>
+                <AlertCircle size={24} className="text-orange-300" />
+                <p className="text-sm text-slate-500 font-medium">
+                  No expense records found
+                </p>
               </div>
             ) : (
               <table className="min-w-full text-sm border-collapse">
                 <thead className="sticky top-0 z-10">
                   <tr>
                     {[
-                      "#", "Client", "Entity", "Department", "Pay Head",
-                      "Due Amount", "TDS", "Transfer",
-                      "Payment Date", "Bank", "Billable", "Cash", "Created At",
+                      "#",
+                      "Client",
+                      "Entity",
+                      "Dept",
+                      "Pay Head",
+                      "Due",
+                      "TDS",
+                      "Transfer",
+                      "Date",
+                      "Bank",
+                      "Billable",
+                      "Cash",
+                      "Edit",
+                      "Delete",
                     ].map((h) => (
                       <th
                         key={h}
@@ -427,115 +541,337 @@ const ExpenseViewModal = ({ open, onClose }) => {
                     ))}
                   </tr>
                 </thead>
-
                 <tbody>
                   {filtered.map((row, index) => (
-                    <tr
-                      key={row.id || index}
-                      className={`border-b border-orange-100 hover:bg-orange-50 transition-colors ${
-                        index % 2 === 0 ? "bg-white" : "bg-orange-50/40"
-                      }`}
-                    >
-                      {/* # */}
-                      <td className="px-4 py-3 text-center text-xs text-slate-400 font-medium whitespace-nowrap">
-                        {index + 1}
-                      </td>
+                    <React.Fragment key={row.id || index}>
+                      {/* ── Data row ── */}
+                      <tr
+                        className={`border-b border-orange-100 transition-colors ${
+                          deletingId === row.id
+                            ? "opacity-30 pointer-events-none"
+                            : ""
+                        } ${
+                          editRow?.id === row.id
+                            ? "bg-orange-50/80"
+                            : index % 2 === 0
+                            ? "bg-white hover:bg-orange-50"
+                            : "bg-orange-50/40 hover:bg-orange-50"
+                        }`}
+                      >
+                        <td className="px-4 py-3 text-center text-xs text-slate-400 font-medium">
+                          {index + 1}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className="font-semibold text-slate-800 text-xs">
+                            {row.client_name || "—"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-orange-100 text-orange-800 text-[10px] font-bold">
+                            {row.entity || "—"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-xs text-slate-600">
+                          {row.department || "—"}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-xs text-slate-600">
+                          {row.pay_head || "—"}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-right">
+                          <span className="font-bold text-orange-700 text-sm">
+                            {fmt(row.due_amount)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-right">
+                          <span className="text-xs font-semibold text-red-600">
+                            {fmt(row.tds_amount)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-right">
+                          <span className="text-xs font-semibold text-slate-700">
+                            {fmt(row.transfer_amount)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
+                            <Calendar size={11} className="text-slate-300" />
+                            <span className="text-xs text-slate-600">
+                              {fmtDate(row.payment_date)}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
+                            <Building2 size={11} className="text-slate-300" />
+                            <span className="text-xs text-slate-600">
+                              {row.bank_name || "—"}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <BoolPill value={row.is_billable} />
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <BoolPill
+                            value={row.petty_cash}
+                            yesLabel="CASH"
+                            noLabel="NO"
+                          />
+                        </td>
 
-                      {/* Client */}
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="font-semibold text-slate-800 text-xs">{row.client_name || "—"}</span>
-                      </td>
+                        {/* Edit button */}
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {editRow?.id === row.id ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={handleSaveEdit}
+                                disabled={savingEdit}
+                                className="flex items-center gap-1 px-2.5 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-[11px] font-bold transition-colors disabled:opacity-60"
+                              >
+                                {savingEdit ? (
+                                  <Loader2 size={10} className="animate-spin" />
+                                ) : (
+                                  <Save size={10} />
+                                )}{" "}
+                                Save
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setEditRow(null);
+                                  setEditForm({});
+                                }}
+                                className="px-2 py-1.5 border border-gray-200 text-gray-500 rounded-lg text-[11px] hover:bg-gray-50 transition-colors"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setEditRow(row);
+                                setEditForm({
+                                  due_amount: row.due_amount,
+                                  tds_amount: row.tds_amount || 0,
+                                  payment_date: row.payment_date,
+                                  bank_id: row.bank_id,
+                                  department: row.department,
+                                  payment_description:
+                                    row.payment_description || "",
+                                  remarks: row.remarks || "",
+                                });
+                              }}
+                              className="flex items-center gap-1 px-2.5 py-1.5 bg-orange-50 hover:bg-orange-100 text-orange-700 rounded-lg text-[11px] font-semibold border border-orange-200 transition-colors"
+                            >
+                              <Pencil size={10} /> Edit
+                            </button>
+                          )}
+                        </td>
 
-                      {/* Entity */}
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-orange-100 text-orange-800 text-[10px] font-bold">
-                          {row.entity || "—"}
-                        </span>
-                      </td>
+                        {/* Delete button */}
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {deletingId === row.id ? (
+                            <Loader2
+                              size={14}
+                              className="animate-spin text-rose-400"
+                            />
+                          ) : (
+                            <button
+                              onClick={() => setConfirmRow(row)}
+                              className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-[11px] font-semibold border border-rose-200 transition-colors"
+                            >
+                              <Trash2 size={10} /> Delete
+                            </button>
+                          )}
+                        </td>
+                      </tr>
 
-                      {/* Department */}
-                      <td className="px-4 py-3 whitespace-nowrap text-xs text-slate-600">
-                        {row.department || "—"}
-                      </td>
-
-                      {/* Pay Head */}
-                      <td className="px-4 py-3 whitespace-nowrap text-xs text-slate-600">
-                        {row.pay_head || "—"}
-                      </td>
-
-                      {/* Due Amount */}
-                      <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <span className="font-bold text-orange-700 text-sm">
-                          {fmt(row.due_amount)}
-                        </span>
-                      </td>
-
-                      {/* TDS */}
-                      <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <span className="text-xs font-semibold text-red-600">
-                          {fmt(row.tds_amount)}
-                        </span>
-                      </td>
-
-                      {/* Transfer */}
-                      <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <span className="text-xs font-semibold text-slate-700">
-                          {fmt(row.transfer_amount)}
-                        </span>
-                      </td>
-
-                      {/* Payment Date */}
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          <Calendar size={11} className="text-slate-300" />
-                          <span className="text-xs text-slate-600">{fmtDate(row.payment_date)}</span>
-                        </div>
-                      </td>
-
-                      {/* Bank */}
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          <Building2 size={11} className="text-slate-300" />
-                          <span className="text-xs text-slate-600">{row.bank_name || "—"}</span>
-                        </div>
-                      </td>
-
-                      {/* Billable */}
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <BoolPill value={row.is_billable} />
-                      </td>
-
-                      {/* Cash */}
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <BoolPill value={row.petty_cash} yesLabel="CASH" noLabel="NO" />
-                      </td>
-
-                      {/* Created At */}
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="text-xs text-slate-400">{fmtDate(row.created_at)}</span>
-                      </td>
-                    </tr>
+                      {/* ── Inline edit form row ── */}
+                      {editRow?.id === row.id && (
+                        <tr className="bg-orange-50/90 border-b-2 border-orange-300">
+                          <td colSpan={2} />
+                          {/* Due Amount */}
+                          <td className="px-3 py-3">
+                            <label className="text-[9px] text-gray-500 font-bold uppercase block mb-1">
+                              Due Amount
+                            </label>
+                            <div className="relative">
+                              <span className="absolute left-2 top-1.5 text-gray-400 text-xs">
+                                ₹
+                              </span>
+                              <input
+                                type="number"
+                                value={editForm.due_amount}
+                                onChange={(e) => {
+                                  const d = parseFloat(e.target.value) || 0;
+                                  const t =
+                                    parseFloat(editForm.tds_amount) || 0;
+                                  setEditForm((f) => ({
+                                    ...f,
+                                    due_amount: d,
+                                    transfer_amount: Math.max(d - t, 0),
+                                  }));
+                                }}
+                                className="w-full border-2 border-orange-200 bg-white rounded-lg pl-6 pr-2 py-1.5 text-xs font-bold text-orange-800 outline-none focus:border-orange-400"
+                              />
+                            </div>
+                          </td>
+                          {/* TDS */}
+                          <td className="px-3 py-3">
+                            <label className="text-[9px] text-gray-500 font-bold uppercase block mb-1">
+                              TDS
+                            </label>
+                            <div className="relative">
+                              <span className="absolute left-2 top-1.5 text-gray-400 text-xs">
+                                ₹
+                              </span>
+                              <input
+                                type="number"
+                                value={editForm.tds_amount}
+                                onChange={(e) => {
+                                  const t = parseFloat(e.target.value) || 0;
+                                  const d =
+                                    parseFloat(editForm.due_amount) || 0;
+                                  setEditForm((f) => ({
+                                    ...f,
+                                    tds_amount: t,
+                                    transfer_amount: Math.max(d - t, 0),
+                                  }));
+                                }}
+                                className="w-full border-2 border-orange-200 bg-white rounded-lg pl-6 pr-2 py-1.5 text-xs font-bold text-red-700 outline-none focus:border-orange-400"
+                              />
+                            </div>
+                          </td>
+                          {/* Transfer (auto) */}
+                          <td className="px-3 py-3">
+                            <label className="text-[9px] text-gray-500 font-bold uppercase block mb-1">
+                              Transfer (auto)
+                            </label>
+                            <div className="border-2 border-gray-100 bg-gray-50 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-600">
+                              ₹{" "}
+                              {Number(
+                                Math.max(
+                                  (parseFloat(editForm.due_amount) || 0) -
+                                    (parseFloat(editForm.tds_amount) || 0),
+                                  0
+                                )
+                              ).toLocaleString("en-IN")}
+                            </div>
+                          </td>
+                          {/* Date */}
+                          <td className="px-3 py-3">
+                            <label className="text-[9px] text-gray-500 font-bold uppercase block mb-1">
+                              Date
+                            </label>
+                            <input
+                              type="date"
+                              value={editForm.payment_date}
+                              onChange={(e) =>
+                                setEditForm((f) => ({
+                                  ...f,
+                                  payment_date: e.target.value,
+                                }))
+                              }
+                              className="w-full border-2 border-orange-200 bg-white rounded-lg px-2 py-1.5 text-xs text-gray-700 outline-none focus:border-orange-400"
+                            />
+                          </td>
+                          {/* Bank */}
+                          <td className="px-3 py-3">
+                            <label className="text-[9px] text-gray-500 font-bold uppercase block mb-1">
+                              Bank
+                            </label>
+                            <select
+                              value={editForm.bank_id || ""}
+                              onChange={(e) =>
+                                setEditForm((f) => ({
+                                  ...f,
+                                  bank_id: e.target.value,
+                                }))
+                              }
+                              className="w-full border-2 border-orange-200 bg-white rounded-lg px-2 py-1.5 text-xs text-gray-700 outline-none focus:border-orange-400"
+                            >
+                              <option value="">Select bank</option>
+                              {banks.map((b) => (
+                                <option key={b.id} value={b.id}>
+                                  {b.bank_name}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          {/* Department */}
+                          <td className="px-3 py-3">
+                            <label className="text-[9px] text-gray-500 font-bold uppercase block mb-1">
+                              Department
+                            </label>
+                            <select
+                              value={editForm.department || ""}
+                              onChange={(e) =>
+                                setEditForm((f) => ({
+                                  ...f,
+                                  department: e.target.value,
+                                }))
+                              }
+                              className="w-full border-2 border-orange-200 bg-white rounded-lg px-2 py-1.5 text-xs text-gray-700 outline-none focus:border-orange-400"
+                            >
+                              <option value="">Select dept</option>
+                              {DEPT_OPTIONS.map((d) => (
+                                <option key={d} value={d}>
+                                  {d}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          {/* Description */}
+                          <td colSpan={2} className="px-3 py-3">
+                            <label className="text-[9px] text-gray-500 font-bold uppercase block mb-1">
+                              Description / Remarks
+                            </label>
+                            <input
+                              type="text"
+                              value={
+                                editForm.payment_description ||
+                                editForm.remarks ||
+                                ""
+                              }
+                              onChange={(e) =>
+                                setEditForm((f) => ({
+                                  ...f,
+                                  payment_description: e.target.value,
+                                  remarks: e.target.value,
+                                }))
+                              }
+                              placeholder="Optional description..."
+                              className="w-full border-2 border-orange-200 bg-white rounded-lg px-2 py-1.5 text-xs text-gray-700 outline-none focus:border-orange-400"
+                            />
+                          </td>
+                          <td colSpan={4} />
+                        </tr>
+                      )}
+                    </React.Fragment>
                   ))}
                 </tbody>
-
-                {/* Sticky totals footer */}
                 <tfoot className="sticky bottom-0">
                   <tr style={{ background: "#431407" }}>
                     <td colSpan={5} className="px-4 py-3">
                       <span className="text-[11px] font-bold text-orange-300 uppercase tracking-widest">
-                        Total ({filtered.length} records)
+                        Total ({filtered.length})
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <span className="font-bold text-white text-base">{fmt(totalDue)}</span>
+                      <span className="font-bold text-white text-base">
+                        {fmt(totalDue)}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <span className="font-bold text-orange-300 text-sm">{fmt(totalTds)}</span>
+                      <span className="font-bold text-orange-300 text-sm">
+                        {fmt(totalTds)}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <span className="font-bold text-orange-200 text-sm">{fmt(totalTransfer)}</span>
+                      <span className="font-bold text-orange-200 text-sm">
+                        {fmt(totalTransfer)}
+                      </span>
                     </td>
-                    <td colSpan={5} />
+                    <td colSpan={6} />
                   </tr>
                 </tfoot>
               </table>
@@ -551,12 +887,25 @@ const ExpenseViewModal = ({ open, onClose }) => {
               <RefreshCw size={13} /> Refresh
             </button>
             <button
-              onClick={handleExport}
+              onClick={() => {
+                setExporting(true);
+                try {
+                  exportToExcel(filtered);
+                } finally {
+                  setExporting(false);
+                }
+              }}
               disabled={exporting || filtered.length === 0}
               className="flex items-center gap-2 px-4 py-2.5 rounded-2xl text-white text-sm font-bold transition-all disabled:opacity-50 shadow-lg"
-              style={{ background: "linear-gradient(135deg, #9a3412, #ea580c)", boxShadow: "0 4px 14px rgba(234,88,12,0.3)" }}
+              style={{
+                background: "linear-gradient(135deg, #9a3412, #ea580c)",
+              }}
             >
-              {exporting ? <RefreshCw size={13} className="animate-spin" /> : <Download size={13} />}
+              {exporting ? (
+                <RefreshCw size={13} className="animate-spin" />
+              ) : (
+                <Download size={13} />
+              )}{" "}
               Download Excel
             </button>
             <button

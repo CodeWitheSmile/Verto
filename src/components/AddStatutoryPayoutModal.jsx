@@ -2,51 +2,92 @@ import React, { useState, useEffect } from "react";
 import supabase from "../lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  X, ArrowRight, AlertCircle, FileCheck, Eye,
-  ChevronLeft, Trash2, Loader2, CheckCircle2,
-  IndianRupee, AlertTriangle, StickyNote, ShieldCheck,
+  X,
+  ArrowRight,
+  AlertCircle,
+  FileCheck,
+  Eye,
+  ChevronLeft,
+  Trash2,
+  Pencil,
+  Loader2,
+  CheckCircle2,
+  IndianRupee,
+  AlertTriangle,
+  StickyNote,
+  ShieldCheck,
+  Hash,
+  TrendingDown,
 } from "lucide-react";
 
-// ─── Helpers ────────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 const inr = (v) => Number(v || 0).toLocaleString("en-IN");
 
-// ─── Section Card ────────────────────────────────────────────────────────────────
+// ─── Section Card ─────────────────────────────────────────────────────────────
 const Section = ({ icon: Icon, title, color, children }) => {
   const map = {
-    blue:    { card: "bg-blue-50/60 border-blue-100",    icon: "bg-blue-100 text-blue-600",    title: "text-blue-800" },
-    emerald: { card: "bg-emerald-50/60 border-emerald-100", icon: "bg-emerald-100 text-emerald-600", title: "text-emerald-800" },
-    amber:   { card: "bg-amber-50/60 border-amber-100",  icon: "bg-amber-100 text-amber-600",  title: "text-amber-800" },
-    gray:    { card: "bg-gray-50/60 border-gray-100",    icon: "bg-gray-100 text-gray-500",    title: "text-gray-700" },
+    blue: {
+      card: "bg-blue-50/60 border-blue-100",
+      icon: "bg-blue-100 text-blue-600",
+      title: "text-blue-800",
+    },
+    emerald: {
+      card: "bg-emerald-50/60 border-emerald-100",
+      icon: "bg-emerald-100 text-emerald-600",
+      title: "text-emerald-800",
+    },
+    amber: {
+      card: "bg-amber-50/60 border-amber-100",
+      icon: "bg-amber-100 text-amber-600",
+      title: "text-amber-800",
+    },
+    gray: {
+      card: "bg-gray-50/60 border-gray-100",
+      icon: "bg-gray-100 text-gray-500",
+      title: "text-gray-700",
+    },
   };
   const s = map[color] || map.gray;
   return (
     <div className={`rounded-2xl border ${s.card} p-5`}>
       <div className="flex items-center gap-2.5 mb-5">
-        <div className={`w-7 h-7 rounded-xl flex items-center justify-center ${s.icon}`}>
+        <div
+          className={`w-7 h-7 rounded-xl flex items-center justify-center ${s.icon}`}
+        >
           <Icon className="w-3.5 h-3.5" />
         </div>
-        <h3 className={`text-xs font-black uppercase tracking-widest ${s.title}`}>{title}</h3>
+        <h3
+          className={`text-xs font-black uppercase tracking-widest ${s.title}`}
+        >
+          {title}
+        </h3>
       </div>
       {children}
     </div>
   );
 };
 
-// ─── Field Wrapper ───────────────────────────────────────────────────────────────
+// ─── Field Wrapper ────────────────────────────────────────────────────────────
 const Field = ({ label, required, hint, error, showErrors, children }) => (
   <div>
     <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5">
-      {label}{required && <span className="text-rose-500 ml-0.5">*</span>}
+      {label}
+      {required && <span className="text-rose-500 ml-0.5">*</span>}
     </label>
     {children}
-    {hint && !(showErrors && error) && <p className="text-[11px] text-gray-400 mt-1">{hint}</p>}
+    {hint && !(showErrors && error) && (
+      <p className="text-[11px] text-gray-400 mt-1">{hint}</p>
+    )}
     <AnimatePresence>
       {showErrors && error && (
         <motion.p
-          initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          exit={{ opacity: 0, height: 0 }}
           className="flex items-center gap-1 text-[11px] text-rose-500 font-semibold mt-1"
         >
-          <AlertCircle className="w-3 h-3 shrink-0" />{error}
+          <AlertCircle className="w-3 h-3 shrink-0" />
+          {error}
         </motion.p>
       )}
     </AnimatePresence>
@@ -63,13 +104,43 @@ const inpCls = (err) =>
    focus:ring-4 focus:ring-cyan-500/10 focus:border-cyan-400 hover:border-gray-200 placeholder:text-gray-300
    ${err ? "border-rose-400" : "border-gray-100"}`;
 
-// ─── Records Panel ────────────────────────────────────────────────────────────────
+// small reusable input for the inline edit form inside the panel
+const EditInput = ({
+  label,
+  value,
+  onChange,
+  type = "number",
+  readOnly = false,
+  className = "",
+}) => (
+  <div className="flex flex-col gap-1">
+    <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400">
+      {label}
+    </label>
+    {readOnly ? (
+      <div className="border-2 border-gray-100 bg-gray-50 rounded-lg px-2.5 py-1.5 text-xs font-black text-rose-600">
+        ₹ {inr(value)}
+      </div>
+    ) : (
+      <input
+        type={type}
+        value={value}
+        onChange={onChange}
+        className={`border-2 border-cyan-200 bg-white rounded-lg px-2.5 py-1.5 text-xs font-bold text-cyan-800 outline-none focus:border-cyan-400 w-full ${className}`}
+      />
+    )}
+  </div>
+);
+
+// ─── Records Panel ────────────────────────────────────────────────────────────
 const StatutoryRecordsPanel = ({ onClose }) => {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
   const [toast, setToast] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
 
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
@@ -86,13 +157,19 @@ const StatutoryRecordsPanel = ({ onClose }) => {
     setLoading(false);
   };
 
-  useEffect(() => { fetchRecords(); }, []);
+  useEffect(() => {
+    fetchRecords();
+  }, []);
 
+  // ── Delete ─────────────────────────────────────────────────────────────────
   const handleDelete = async (id) => {
     setConfirmId(null);
     setDeletingId(id);
     try {
-      const { error } = await supabase.rpc("delete_statutory_payment_complete", { p_id: id });
+      const { error } = await supabase.rpc(
+        "delete_statutory_payment_complete",
+        { p_id: id }
+      );
       if (error) throw error;
       window.refreshDashboard?.();
       showToast("Deleted & ERP synced");
@@ -104,13 +181,125 @@ const StatutoryRecordsPanel = ({ onClose }) => {
     }
   };
 
+  // ── Edit helpers ───────────────────────────────────────────────────────────
+  const startEdit = (row) => {
+    setEditingId(row.id);
+    setEditForm({
+      total_due: String(row.total_due ?? ""),
+      total_paid: String(row.total_paid ?? ""),
+      pending_due: String(row.pending_due ?? ""),
+      bank_id: row.bank_id ?? "",
+      remarks: row.remarks ?? "",
+      penalty: row.penalty ?? false,
+      penalty_amount: String(row.penalty_amount ?? "0"),
+    });
+  };
+
+  const handleEditChange = (field, value) => {
+    setEditForm((prev) => {
+      const next = { ...prev, [field]: value };
+      // keep pending_due in sync when due or paid changes
+      if (field === "total_due" || field === "total_paid") {
+        const due =
+          parseFloat(field === "total_due" ? value : prev.total_due) || 0;
+        const paid =
+          parseFloat(field === "total_paid" ? value : prev.total_paid) || 0;
+        // clamp paid to due
+        const clampedPaid = Math.min(paid, due);
+        next.total_paid =
+          field === "total_paid" ? String(clampedPaid) : prev.total_paid;
+        next.pending_due = String(Math.max(due - clampedPaid, 0));
+      }
+      return next;
+    });
+  };
+
+  // ── Save edit ──────────────────────────────────────────────────────────────
+  const handleSaveEdit = async () => {
+    setDeletingId(editingId); // reuse loading indicator
+    try {
+      const due = parseFloat(editForm.total_due) || 0;
+      const paid = parseFloat(editForm.total_paid) || 0;
+      const pending = Math.max(due - paid, 0);
+      const { error } = await supabase
+        .from("statutory_payments")
+        .update({
+          total_due: due,
+          total_paid: paid,
+          pending_due: pending,
+          payment_status:
+            pending <= 0 ? "paid" : paid > 0 ? "partial" : "pending",
+          bank_id: editForm.bank_id || null,
+          remarks: editForm.remarks || "",
+          penalty: editForm.penalty || false,
+          penalty_amount: parseFloat(editForm.penalty_amount) || 0,
+        })
+        .eq("id", editingId);
+      if (error) throw error;
+      setEditingId(null);
+      setEditForm({});
+      window.refreshDashboard?.();
+      showToast("Updated & ERP synced");
+      await fetchRecords();
+    } catch (err) {
+      showToast("Update failed: " + err.message, "error");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  // ── Derived stats ──────────────────────────────────────────────────────────
+  const totalPaid = records.reduce((s, r) => s + Number(r.total_paid || 0), 0);
+  const totalPending = records.reduce(
+    (s, r) => s + Number(r.pending_due || 0),
+    0
+  );
+  const totalPenalty = records.reduce(
+    (s, r) => s + Number(r.penalty_amount || 0),
+    0
+  );
+  const overdue = records.filter((r) => r.delay_days > 0).length;
+
+  const statCards = [
+    {
+      label: "Records",
+      value: records.length,
+      color: "text-gray-800",
+      bg: "bg-gray-50",
+      border: "border-gray-200",
+      sub: "all time",
+    },
+    {
+      label: "Total Paid",
+      value: `₹${inr(totalPaid)}`,
+      color: "text-emerald-700",
+      bg: "bg-emerald-50",
+      border: "border-emerald-200",
+      sub: "outflow",
+    },
+    {
+      label: "Pending Due",
+      value: `₹${inr(totalPending)}`,
+      color: "text-rose-600",
+      bg: "bg-rose-50",
+      border: "border-rose-200",
+      sub: "outstanding",
+    },
+    {
+      label: "Overdue",
+      value: overdue,
+      color: "text-amber-700",
+      bg: "bg-amber-50",
+      border: "border-amber-200",
+      sub: `₹${inr(totalPenalty)} penalty`,
+    },
+  ];
+
   const statusBadge = {
-    paid:    "bg-emerald-50 text-emerald-600 border border-emerald-200",
+    paid: "bg-emerald-50 text-emerald-600 border border-emerald-200",
     partial: "bg-amber-50 text-amber-600 border border-amber-200",
     pending: "bg-rose-50 text-rose-600 border border-rose-200",
   };
-
-  const totalPaid = records.reduce((s, r) => s + Number(r.total_paid || 0), 0);
 
   return (
     <motion.div
@@ -120,7 +309,7 @@ const StatutoryRecordsPanel = ({ onClose }) => {
       transition={{ type: "spring", damping: 28, stiffness: 260 }}
       className="absolute inset-0 bg-white z-10 flex flex-col rounded-2xl overflow-hidden"
     >
-      {/* Header */}
+      {/* ── Header ── */}
       <div className="bg-gradient-to-r from-cyan-600 via-cyan-500 to-blue-600 px-5 py-4 flex-shrink-0 text-white">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -133,16 +322,48 @@ const StatutoryRecordsPanel = ({ onClose }) => {
             <div className="w-px h-5 bg-white/25" />
             <div>
               <p className="text-sm font-black">Statutory Payout Records</p>
-              <p className="text-[11px] text-cyan-200 mt-0.5">{records.length} records · ₹ {inr(totalPaid)} paid</p>
+              <p className="text-[11px] text-cyan-200 mt-0.5">
+                {records.length} records · ₹{inr(totalPaid)} paid · ₹
+                {inr(totalPending)} pending · {overdue} overdue
+              </p>
             </div>
           </div>
-          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-xl transition-all">
+          <button
+            onClick={onClose}
+            className="w-7 h-7 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-xl transition-all"
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      {/* List */}
+      {/* ── Stat Cards (mirrors StatutoryPayoutPage StatCard style) ── */}
+      <div className="grid grid-cols-4 gap-3 px-4 py-3 bg-white border-b border-gray-100 flex-shrink-0">
+        {statCards.map(({ label, value, color, bg, border, sub }) => (
+          <div
+            key={label}
+            className={`rounded-xl border-2 ${bg} ${border} px-3 py-2.5`}
+          >
+            <div className="flex items-start justify-between gap-1">
+              <div className="min-w-0">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-gray-500 mb-0.5">
+                  {label}
+                </p>
+                <p className={`text-sm font-black ${color} truncate`}>
+                  {value}
+                </p>
+                {sub && (
+                  <p className="text-[9px] text-gray-400 mt-0.5 truncate">
+                    {sub}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── List ── */}
       <div className="flex-1 overflow-y-auto p-4 space-y-2.5 bg-gray-50/50">
         {loading ? (
           <div className="flex items-center justify-center py-20 text-gray-300">
@@ -154,95 +375,266 @@ const StatutoryRecordsPanel = ({ onClose }) => {
             <FileCheck className="w-10 h-10 mb-3 opacity-40" />
             <p className="text-sm font-semibold">No records yet</p>
           </div>
-        ) : records.map((row) => (
-          <motion.div
-            key={row.id}
-            layout
-            animate={{ opacity: deletingId === row.id ? 0.4 : 1 }}
-            className={`bg-white rounded-2xl border border-gray-100 p-4 shadow-sm ${deletingId === row.id ? "pointer-events-none" : ""}`}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex-1 min-w-0">
-                {/* Badge row */}
-                <div className="flex items-center gap-2 flex-wrap mb-1.5">
-                  <span className="font-black text-gray-900 text-sm">{row.type}</span>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusBadge[row.calculated_status] || "bg-gray-100 text-gray-500"}`}>
-                    {row.calculated_status?.toUpperCase()}
-                  </span>
-                  {row.penalty && (
-                    <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded-full font-bold">⚡ Penalty</span>
-                  )}
-                  {row.delay_days > 0 && (
-                    <span className="text-[10px] bg-rose-50 text-rose-500 border border-rose-200 px-2 py-0.5 rounded-full font-bold">{row.delay_days}d late</span>
+        ) : (
+          records.map((row) => (
+            <motion.div
+              key={row.id}
+              layout
+              animate={{ opacity: deletingId === row.id ? 0.4 : 1 }}
+              className={`bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden ${
+                deletingId === row.id ? "pointer-events-none" : ""
+              }`}
+            >
+              {/* ── Card header ── */}
+              <div className="flex items-start justify-between gap-3 p-4">
+                <div className="flex-1 min-w-0">
+                  {/* Badge row */}
+                  <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                    <span className="font-black text-gray-900 text-sm">
+                      {row.type}
+                    </span>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        statusBadge[row.calculated_status] ||
+                        "bg-gray-100 text-gray-500"
+                      }`}
+                    >
+                      {row.calculated_status?.toUpperCase()}
+                    </span>
+                    {row.penalty && (
+                      <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded-full font-bold">
+                        ⚡ Penalty
+                      </span>
+                    )}
+                    {row.delay_days > 0 && (
+                      <span className="text-[10px] bg-rose-50 text-rose-500 border border-rose-200 px-2 py-0.5 rounded-full font-bold">
+                        {row.delay_days}d late
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Meta */}
+                  <p className="text-[11px] text-gray-400 font-medium mb-3">
+                    {row.entity}
+                    {row.month && (
+                      <>
+                        {" "}
+                        ·{" "}
+                        {new Date(row.month).toLocaleDateString("en-IN", {
+                          month: "short",
+                          year: "numeric",
+                        })}
+                      </>
+                    )}
+                    {row.bank_name && (
+                      <span className="text-cyan-500"> · {row.bank_name}</span>
+                    )}
+                  </p>
+
+                  {/* Amounts (read-only view) */}
+                  {editingId !== row.id && (
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="bg-gray-50 rounded-xl px-2.5 py-2 text-center">
+                        <p className="text-[9px] text-gray-400 font-bold uppercase mb-0.5">
+                          Due
+                        </p>
+                        <p className="text-xs font-black text-gray-700">
+                          ₹{inr(row.total_due)}
+                        </p>
+                      </div>
+                      <div className="bg-emerald-50 rounded-xl px-2.5 py-2 text-center">
+                        <p className="text-[9px] text-emerald-500 font-bold uppercase mb-0.5">
+                          Paid
+                        </p>
+                        <p className="text-xs font-black text-emerald-600">
+                          ₹{inr(row.total_paid)}
+                        </p>
+                      </div>
+                      {Number(row.pending_due) > 0 ? (
+                        <div className="bg-rose-50 rounded-xl px-2.5 py-2 text-center">
+                          <p className="text-[9px] text-rose-400 font-bold uppercase mb-0.5">
+                            Pending
+                          </p>
+                          <p className="text-xs font-black text-rose-600">
+                            ₹{inr(row.pending_due)}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="bg-emerald-50 rounded-xl px-2.5 py-2 text-center">
+                          <p className="text-[9px] text-emerald-400 font-bold uppercase mb-0.5">
+                            Status
+                          </p>
+                          <p className="text-xs font-black text-emerald-500">
+                            Cleared
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
 
-                {/* Meta */}
-                <p className="text-[11px] text-gray-400 font-medium mb-3">
-                  {row.entity}
-                  {row.month && <> · {new Date(row.month).toLocaleDateString("en-IN", { month: "short", year: "numeric" })}</>}
-                  {row.bank_name && <span className="text-cyan-500"> · {row.bank_name}</span>}
-                </p>
-
-                {/* Amounts */}
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="bg-gray-50 rounded-xl px-2.5 py-2 text-center">
-                    <p className="text-[9px] text-gray-400 font-bold uppercase mb-0.5">Due</p>
-                    <p className="text-xs font-black text-gray-700">₹{inr(row.total_due)}</p>
-                  </div>
-                  <div className="bg-emerald-50 rounded-xl px-2.5 py-2 text-center">
-                    <p className="text-[9px] text-emerald-500 font-bold uppercase mb-0.5">Paid</p>
-                    <p className="text-xs font-black text-emerald-600">₹{inr(row.total_paid)}</p>
-                  </div>
-                  {Number(row.pending_due) > 0 ? (
-                    <div className="bg-rose-50 rounded-xl px-2.5 py-2 text-center">
-                      <p className="text-[9px] text-rose-400 font-bold uppercase mb-0.5">Pending</p>
-                      <p className="text-xs font-black text-rose-600">₹{inr(row.pending_due)}</p>
+                {/* Action buttons */}
+                <div className="flex-shrink-0 pt-0.5 flex flex-col gap-1.5">
+                  {deletingId === row.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
+                  ) : confirmId === row.id ? (
+                    <div className="flex flex-col gap-1.5">
+                      <button
+                        onClick={() => handleDelete(row.id)}
+                        className="px-3 py-1.5 bg-rose-500 text-white text-[11px] font-black rounded-xl hover:bg-rose-600 transition-colors"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => setConfirmId(null)}
+                        className="px-3 py-1.5 border-2 border-gray-100 text-gray-400 text-[11px] font-bold rounded-xl hover:bg-gray-50 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : editingId === row.id ? (
+                    <div className="flex flex-col gap-1.5">
+                      <button
+                        onClick={handleSaveEdit}
+                        className="px-3 py-1.5 bg-cyan-500 text-white text-[11px] font-black rounded-xl hover:bg-cyan-600 transition-colors"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingId(null);
+                          setEditForm({});
+                        }}
+                        className="px-3 py-1.5 border-2 border-gray-100 text-gray-400 text-[11px] font-bold rounded-xl hover:bg-gray-50 transition-colors"
+                      >
+                        Cancel
+                      </button>
                     </div>
                   ) : (
-                    <div className="bg-emerald-50 rounded-xl px-2.5 py-2 text-center">
-                      <p className="text-[9px] text-emerald-400 font-bold uppercase mb-0.5">Status</p>
-                      <p className="text-xs font-black text-emerald-500">Cleared</p>
-                    </div>
+                    <>
+                      <button
+                        onClick={() => startEdit(row)}
+                        className="p-2 text-gray-300 hover:text-cyan-500 hover:bg-cyan-50 rounded-xl border-2 border-transparent hover:border-cyan-100 transition-all"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setConfirmId(row.id)}
+                        className="p-2 text-gray-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl border-2 border-transparent hover:border-rose-100 transition-all"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
 
-              {/* Delete */}
-              <div className="flex-shrink-0 pt-0.5">
-                {deletingId === row.id ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
-                ) : confirmId === row.id ? (
-                  <div className="flex flex-col gap-1.5">
-                    <button onClick={() => handleDelete(row.id)} className="px-3 py-1.5 bg-rose-500 text-white text-[11px] font-black rounded-xl hover:bg-rose-600 transition-colors">
-                      Confirm
-                    </button>
-                    <button onClick={() => setConfirmId(null)} className="px-3 py-1.5 border-2 border-gray-100 text-gray-400 text-[11px] font-bold rounded-xl hover:bg-gray-50 transition-colors">
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setConfirmId(row.id)}
-                    className="p-2 text-gray-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl border-2 border-transparent hover:border-rose-100 transition-all"
+              {/* ── Inline edit form (expands below when editing) ── */}
+              <AnimatePresence>
+                {editingId === row.id && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden border-t border-cyan-100 bg-cyan-50/40 px-4 py-3"
                   >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <EditInput
+                        label="Total Due (₹)"
+                        value={editForm.total_due}
+                        onChange={(e) =>
+                          handleEditChange("total_due", e.target.value)
+                        }
+                      />
+                      <EditInput
+                        label="Total Paid (₹)"
+                        value={editForm.total_paid}
+                        onChange={(e) =>
+                          handleEditChange("total_paid", e.target.value)
+                        }
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <EditInput
+                        label="Pending Due (auto)"
+                        value={editForm.pending_due}
+                        readOnly
+                      />
+                      <EditInput
+                        label="Penalty Amount (₹)"
+                        value={editForm.penalty_amount}
+                        onChange={(e) =>
+                          setEditForm((f) => ({
+                            ...f,
+                            penalty_amount: e.target.value,
+                            penalty: parseFloat(e.target.value) > 0,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="mb-3">
+                      <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1">
+                        Remarks
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.remarks}
+                        onChange={(e) =>
+                          setEditForm((f) => ({
+                            ...f,
+                            remarks: e.target.value,
+                          }))
+                        }
+                        placeholder="Optional remark…"
+                        className="w-full border-2 border-cyan-200 bg-white rounded-lg px-2.5 py-1.5 text-xs text-gray-700 outline-none focus:border-cyan-400"
+                      />
+                    </div>
+
+                    {/* live status indicator */}
+                    {(() => {
+                      const pending = parseFloat(editForm.pending_due) || 0;
+                      return (
+                        <div
+                          className={`flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold border-2 ${
+                            pending > 0
+                              ? "bg-amber-50 border-amber-200 text-amber-700"
+                              : "bg-emerald-50 border-emerald-200 text-emerald-700"
+                          }`}
+                        >
+                          {pending > 0 ? (
+                            <>
+                              <AlertTriangle className="w-3 h-3" /> Partial — ₹
+                              {inr(pending)} still pending
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="w-3 h-3" /> Fully Paid
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </motion.div>
                 )}
-              </div>
-            </div>
-          </motion.div>
-        ))}
+              </AnimatePresence>
+            </motion.div>
+          ))
+        )}
       </div>
 
       {/* Toast */}
       <AnimatePresence>
         {toast && (
           <motion.div
-            initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }}
-            className={`absolute bottom-4 left-4 right-4 flex items-center gap-2.5 px-4 py-3 rounded-2xl text-white text-xs font-bold shadow-xl ${toast.type === "success" ? "bg-emerald-500" : "bg-rose-500"}`}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 16 }}
+            className={`absolute bottom-4 left-4 right-4 flex items-center gap-2.5 px-4 py-3 rounded-2xl text-white text-xs font-bold shadow-xl ${
+              toast.type === "success" ? "bg-emerald-500" : "bg-rose-500"
+            }`}
           >
-            <CheckCircle2 className="w-4 h-4 shrink-0" />{toast.msg}
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            {toast.msg}
           </motion.div>
         )}
       </AnimatePresence>
@@ -250,13 +642,30 @@ const StatutoryRecordsPanel = ({ onClose }) => {
   );
 };
 
-// ─── Main Modal ───────────────────────────────────────────────────────────────────
-const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [], banks = [] }) => {
+// ─── Main Modal ───────────────────────────────────────────────────────────────
+const AddStatutoryPayoutModal = ({
+  isOpen,
+  onClose,
+  entities = [],
+  banks = [],
+}) => {
   const [formData, setFormData] = useState({
-    entity: "", bank_id: "", statutoryPayoutType: "GST",
-    forTheMonth: "", totalDue: "", totalPaid: "", pendingDue: "",
-    anyInterestPenalties: "No", penaltyAmount: "", penaltyPercentage: "",
-    remarks: "", ops: "100", temp: "", recruitment: "", projects: "", others: "",
+    entity: "",
+    bank_id: "",
+    statutoryPayoutType: "GST",
+    forTheMonth: "",
+    totalDue: "",
+    totalPaid: "",
+    pendingDue: "",
+    anyInterestPenalties: "No",
+    penaltyAmount: "",
+    penaltyPercentage: "",
+    remarks: "",
+    ops: "100",
+    temp: "",
+    recruitment: "",
+    projects: "",
+    others: "",
   });
 
   const [errors, setErrors] = useState({});
@@ -265,10 +674,14 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [], banks = [] })
   const [viewOpen, setViewOpen] = useState(false);
 
   const statutoryTypes = [
-    { value: "GST", label: "GST" }, { value: "TDS", label: "TDS" },
-    { value: "EPF", label: "EPF" }, { value: "ESI", label: "ESI" },
-    { value: "LWF", label: "LWF" }, { value: "PF", label: "PF" },
-    { value: "Income Tax", label: "Income Tax" }, { value: "Others", label: "Others" },
+    { value: "GST", label: "GST" },
+    { value: "TDS", label: "TDS" },
+    { value: "EPF", label: "EPF" },
+    { value: "ESI", label: "ESI" },
+    { value: "LWF", label: "LWF" },
+    { value: "PF", label: "PF" },
+    { value: "Income Tax", label: "Income Tax" },
+    { value: "Others", label: "Others" },
   ];
 
   const fetchAutoDue = async (entity, month, type) => {
@@ -279,7 +692,10 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [], banks = [] })
       selected_type: type,
     });
     const totalDue = Number(dueData?.[0]?.total_due || 0);
-    setFormData((prev) => ({ ...prev, totalDue: totalDue > 0 ? totalDue.toFixed(2) : "0.00" }));
+    setFormData((prev) => ({
+      ...prev,
+      totalDue: totalDue > 0 ? totalDue.toFixed(2) : "0.00",
+    }));
   };
 
   const handleChange = (field, value) => {
@@ -288,12 +704,21 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [], banks = [] })
       if (field === "totalPaid") {
         const remaining = parseFloat(prev.totalDue) || 0;
         const entered = parseFloat(value) || 0;
-        if (entered > remaining) return { ...prev, totalPaid: remaining.toString() };
+        if (entered > remaining)
+          return { ...prev, totalPaid: remaining.toString() };
         updated.totalPaid = value;
       }
-      if (["entity", "forTheMonth", "statutoryPayoutType"].includes(field) &&
-        updated.entity && updated.forTheMonth && updated.statutoryPayoutType) {
-        fetchAutoDue(updated.entity, updated.forTheMonth, updated.statutoryPayoutType);
+      if (
+        ["entity", "forTheMonth", "statutoryPayoutType"].includes(field) &&
+        updated.entity &&
+        updated.forTheMonth &&
+        updated.statutoryPayoutType
+      ) {
+        fetchAutoDue(
+          updated.entity,
+          updated.forTheMonth,
+          updated.statutoryPayoutType
+        );
       }
       return updated;
     });
@@ -304,24 +729,32 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [], banks = [] })
     const due = parseFloat(formData.totalDue) || 0;
     const paid = parseFloat(formData.totalPaid) || 0;
     const pending = due - paid;
-    setFormData((prev) => ({ ...prev, pendingDue: pending >= 0 ? pending.toFixed(2) : "0.00" }));
+    setFormData((prev) => ({
+      ...prev,
+      pendingDue: pending >= 0 ? pending.toFixed(2) : "0.00",
+    }));
   }, [formData.totalDue, formData.totalPaid]);
 
   const calculateTotalPercentage = () =>
-    ["ops", "temp", "recruitment", "projects", "others"]
-      .reduce((s, k) => s + (parseFloat(formData[k]) || 0), 0);
+    ["ops", "temp", "recruitment", "projects", "others"].reduce(
+      (s, k) => s + (parseFloat(formData[k]) || 0),
+      0
+    );
 
   const validateForm = () => {
     const e = {};
     if (!formData.entity) e.entity = "Entity is required";
     if (!formData.bank_id) e.bank_id = "Bank is required";
-    if (!formData.statutoryPayoutType) e.statutoryPayoutType = "Type is required";
+    if (!formData.statutoryPayoutType)
+      e.statutoryPayoutType = "Type is required";
     if (!formData.forTheMonth.trim()) e.forTheMonth = "Month is required";
     if (!formData.totalDue) e.totalDue = "Total due is required";
     if (!formData.totalPaid) e.totalPaid = "Total paid is required";
     if (formData.anyInterestPenalties === "Yes") {
-      if (!formData.penaltyAmount) e.penaltyAmount = "Penalty amount is required";
-      if (!formData.penaltyPercentage) e.penaltyPercentage = "Penalty % is required";
+      if (!formData.penaltyAmount)
+        e.penaltyAmount = "Penalty amount is required";
+      if (!formData.penaltyPercentage)
+        e.penaltyPercentage = "Penalty % is required";
       if (Math.abs(calculateTotalPercentage() - 100) > 0.01)
         e.costHeadBreakdown = "Cost head breakdown must total 100%";
     }
@@ -336,7 +769,10 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [], banks = [] })
 
     const paying = Number(formData.totalPaid || 0);
     const remaining = Number(formData.totalDue || 0);
-    if (paying > remaining) { alert("❌ Cannot pay more than remaining due"); return; }
+    if (paying > remaining) {
+      alert("❌ Cannot pay more than remaining due");
+      return;
+    }
 
     setLoading(true);
     try {
@@ -354,9 +790,9 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [], banks = [] })
         projection_status: "actual",
         payment_status: Number(formData.pendingDue) <= 0 ? "paid" : "partial",
       };
-      // Insert into statutory_payments
-      // Triggers auto-create bank_entries + software_entries
-      const { error } = await supabase.from("statutory_payments").insert([payload]);
+      const { error } = await supabase
+        .from("statutory_payments")
+        .insert([payload]);
       if (error) throw error;
       window.refreshDashboard?.();
       alert("✅ Statutory Payment Saved");
@@ -371,10 +807,22 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [], banks = [] })
 
   const resetForm = () => {
     setFormData({
-      entity: "", bank_id: "", statutoryPayoutType: "GST",
-      forTheMonth: "", totalDue: "", totalPaid: "", pendingDue: "",
-      anyInterestPenalties: "No", penaltyAmount: "", penaltyPercentage: "",
-      remarks: "", ops: "100", temp: "", recruitment: "", projects: "", others: "",
+      entity: "",
+      bank_id: "",
+      statutoryPayoutType: "GST",
+      forTheMonth: "",
+      totalDue: "",
+      totalPaid: "",
+      pendingDue: "",
+      anyInterestPenalties: "No",
+      penaltyAmount: "",
+      penaltyPercentage: "",
+      remarks: "",
+      ops: "100",
+      temp: "",
+      recruitment: "",
+      projects: "",
+      others: "",
     });
     setErrors({});
     setShowErrors(false);
@@ -382,7 +830,10 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [], banks = [] })
     setLoading(false);
   };
 
-  const handleClose = () => { resetForm(); onClose(); };
+  const handleClose = () => {
+    resetForm();
+    onClose();
+  };
 
   const totalPercentage = calculateTotalPercentage();
   const hasPending = Number(formData.pendingDue) > 0;
@@ -391,7 +842,9 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [], banks = [] })
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
           className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4"
           onClick={handleClose}
         >
@@ -405,16 +858,24 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [], banks = [] })
           >
             {/* Inline Records Panel */}
             <AnimatePresence>
-              {viewOpen && <StatutoryRecordsPanel onClose={() => setViewOpen(false)} />}
+              {viewOpen && (
+                <StatutoryRecordsPanel onClose={() => setViewOpen(false)} />
+              )}
             </AnimatePresence>
 
             {/* ── Header ── */}
             <div className="bg-gradient-to-r from-cyan-600 via-cyan-500 to-blue-600 px-7 py-5 text-white flex-shrink-0">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-[10px] font-bold text-cyan-200 uppercase tracking-[3px] mb-1">Compliance</p>
-                  <h2 className="text-xl font-black tracking-tight">+ Add Statutory Payout</h2>
-                  <p className="text-cyan-100/80 text-xs mt-0.5">Record statutory compliance payments</p>
+                  <p className="text-[10px] font-bold text-cyan-200 uppercase tracking-[3px] mb-1">
+                    Compliance
+                  </p>
+                  <h2 className="text-xl font-black tracking-tight">
+                    + Add Statutory Payout
+                  </h2>
+                  <p className="text-cyan-100/80 text-xs mt-0.5">
+                    Record statutory compliance payments
+                  </p>
                 </div>
                 <div className="flex items-center gap-2.5">
                   <button
@@ -437,156 +898,302 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [], banks = [] })
             {/* ── Scrollable Form ── */}
             <div className="flex-1 overflow-y-auto p-6 bg-gray-50/30">
               <form onSubmit={handleSubmit} className="space-y-5">
-
                 {/* ── Statutory Details ── */}
-                <Section icon={ShieldCheck} title="Statutory Details" color="blue">
+                <Section
+                  icon={ShieldCheck}
+                  title="Statutory Details"
+                  color="blue"
+                >
                   <div className="grid grid-cols-2 gap-4">
-                    <Field label="Entity" required error={errors.entity} showErrors={showErrors}>
-                      <select value={formData.entity} onChange={(e) => handleChange("entity", e.target.value)}
-                        className={selCls(showErrors && errors.entity)}>
+                    <Field
+                      label="Entity"
+                      required
+                      error={errors.entity}
+                      showErrors={showErrors}
+                    >
+                      <select
+                        value={formData.entity}
+                        onChange={(e) => handleChange("entity", e.target.value)}
+                        className={selCls(showErrors && errors.entity)}
+                      >
                         <option value="">Select Entity</option>
-                        {entities.map((entity, idx) => <option key={idx} value={entity}>{entity}</option>)}
+                        {entities.map((entity, idx) => (
+                          <option key={idx} value={entity}>
+                            {entity}
+                          </option>
+                        ))}
                       </select>
                     </Field>
-
-                    <Field label="Statutory Type" required error={errors.statutoryPayoutType} showErrors={showErrors}
-                      hint="GST / TDS / EPF / ESI / LWF / PF / Income Tax / Others">
-                      <select value={formData.statutoryPayoutType} onChange={(e) => handleChange("statutoryPayoutType", e.target.value)}
-                        className={selCls(showErrors && errors.statutoryPayoutType)}>
-                        {statutoryTypes.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    <Field
+                      label="Statutory Type"
+                      required
+                      error={errors.statutoryPayoutType}
+                      showErrors={showErrors}
+                      hint="GST / TDS / EPF / ESI / LWF / PF / Income Tax / Others"
+                    >
+                      <select
+                        value={formData.statutoryPayoutType}
+                        onChange={(e) =>
+                          handleChange("statutoryPayoutType", e.target.value)
+                        }
+                        className={selCls(
+                          showErrors && errors.statutoryPayoutType
+                        )}
+                      >
+                        {statutoryTypes.map((t) => (
+                          <option key={t.value} value={t.value}>
+                            {t.label}
+                          </option>
+                        ))}
                       </select>
                     </Field>
                   </div>
-
                   <div className="grid grid-cols-2 gap-4 mt-4">
-                    <Field label="For The Month" required error={errors.forTheMonth} showErrors={showErrors}>
-                      <input type="month" value={formData.forTheMonth}
-                        onChange={(e) => handleChange("forTheMonth", e.target.value)}
-                        className={inpCls(showErrors && errors.forTheMonth)} />
+                    <Field
+                      label="For The Month"
+                      required
+                      error={errors.forTheMonth}
+                      showErrors={showErrors}
+                    >
+                      <input
+                        type="month"
+                        value={formData.forTheMonth}
+                        onChange={(e) =>
+                          handleChange("forTheMonth", e.target.value)
+                        }
+                        className={inpCls(showErrors && errors.forTheMonth)}
+                      />
                     </Field>
-
-                    <Field label="Bank" required error={errors.bank_id} showErrors={showErrors}>
-                      <select value={formData.bank_id} onChange={(e) => handleChange("bank_id", e.target.value)}
-                        className={selCls(showErrors && errors.bank_id)}>
+                    <Field
+                      label="Bank"
+                      required
+                      error={errors.bank_id}
+                      showErrors={showErrors}
+                    >
+                      <select
+                        value={formData.bank_id}
+                        onChange={(e) =>
+                          handleChange("bank_id", e.target.value)
+                        }
+                        className={selCls(showErrors && errors.bank_id)}
+                      >
                         <option value="">Select Bank</option>
-                        {banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.bank_name}</option>)}
+                        {banks.map((bank) => (
+                          <option key={bank.id} value={bank.id}>
+                            {bank.bank_name}
+                          </option>
+                        ))}
                       </select>
                     </Field>
                   </div>
                 </Section>
 
                 {/* ── Payment Info ── */}
-                <Section icon={IndianRupee} title="Payment Information" color="emerald">
+                <Section
+                  icon={IndianRupee}
+                  title="Payment Information"
+                  color="emerald"
+                >
                   <div className="grid grid-cols-3 gap-4">
-                    <Field label="Total Due" required error={errors.totalDue} showErrors={showErrors} hint="Auto Collate">
-                      <input type="text" value={formData.totalDue}
-                        onChange={(e) => handleChange("totalDue", e.target.value)}
-                        className={inpCls(showErrors && errors.totalDue)} placeholder="₹ 0" />
+                    <Field
+                      label="Total Due"
+                      required
+                      error={errors.totalDue}
+                      showErrors={showErrors}
+                      hint="Auto Collate"
+                    >
+                      <input
+                        type="text"
+                        value={formData.totalDue}
+                        onChange={(e) =>
+                          handleChange("totalDue", e.target.value)
+                        }
+                        className={inpCls(showErrors && errors.totalDue)}
+                        placeholder="₹ 0"
+                      />
                     </Field>
-
-                    <Field label="Total Paid" required error={errors.totalPaid} showErrors={showErrors}>
-                      <input type="text" value={formData.totalPaid}
-                        onChange={(e) => handleChange("totalPaid", e.target.value)}
-                        className={inpCls(showErrors && errors.totalPaid)} placeholder="₹ 0" />
+                    <Field
+                      label="Total Paid"
+                      required
+                      error={errors.totalPaid}
+                      showErrors={showErrors}
+                    >
+                      <input
+                        type="text"
+                        value={formData.totalPaid}
+                        onChange={(e) =>
+                          handleChange("totalPaid", e.target.value)
+                        }
+                        className={inpCls(showErrors && errors.totalPaid)}
+                        placeholder="₹ 0"
+                      />
                     </Field>
-
                     <Field label="Pending Due" hint="Auto-calculated">
-                      <div className={`w-full border-2 rounded-xl px-3.5 py-2.5 font-black font-mono text-sm transition-all ${
-                        hasPending
-                          ? "bg-rose-50 border-rose-200 text-rose-600"
-                          : formData.totalDue
+                      <div
+                        className={`w-full border-2 rounded-xl px-3.5 py-2.5 font-black font-mono text-sm transition-all ${
+                          hasPending
+                            ? "bg-rose-50 border-rose-200 text-rose-600"
+                            : formData.totalDue
                             ? "bg-emerald-50 border-emerald-200 text-emerald-600"
                             : "bg-gray-50 border-gray-100 text-gray-400"
-                      }`}>
+                        }`}
+                      >
                         ₹ {inr(formData.pendingDue)}
                       </div>
                     </Field>
                   </div>
-
-                  {/* Live status banner */}
                   <AnimatePresence>
                     {(formData.totalDue || formData.totalPaid) && (
                       <motion.div
-                        initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                        initial={{ opacity: 0, y: -6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
                         className={`mt-4 flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-xs font-bold border-2 ${
                           hasPending
                             ? "bg-amber-50 border-amber-200 text-amber-700"
                             : "bg-emerald-50 border-emerald-200 text-emerald-700"
                         }`}
                       >
-                        {hasPending
-                          ? <><AlertTriangle className="w-3.5 h-3.5" /> Partial Payment — ₹{inr(formData.pendingDue)} still pending</>
-                          : <><CheckCircle2 className="w-3.5 h-3.5" /> Fully Paid — No pending balance</>}
+                        {hasPending ? (
+                          <>
+                            <AlertTriangle className="w-3.5 h-3.5" /> Partial
+                            Payment — ₹{inr(formData.pendingDue)} still pending
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Fully Paid
+                            — No pending balance
+                          </>
+                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>
                 </Section>
 
                 {/* ── Penalties ── */}
-                <Section icon={AlertTriangle} title="Interest / Penalties" color="amber">
+                <Section
+                  icon={AlertTriangle}
+                  title="Interest / Penalties"
+                  color="amber"
+                >
                   <div className="mb-4">
-                    <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-2">Any Interest / Penalties</p>
+                    <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-2">
+                      Any Interest / Penalties
+                    </p>
                     <div className="grid grid-cols-2 gap-3">
                       {["Yes", "No"].map((opt) => (
-                        <button key={opt} type="button"
-                          onClick={() => handleChange("anyInterestPenalties", opt)}
+                        <button
+                          key={opt}
+                          type="button"
+                          onClick={() =>
+                            handleChange("anyInterestPenalties", opt)
+                          }
                           className={`py-3 rounded-xl font-black text-sm transition-all border-2 ${
                             formData.anyInterestPenalties === opt
                               ? opt === "Yes"
                                 ? "bg-amber-500 text-white border-amber-500 shadow-lg shadow-amber-500/20"
                                 : "bg-emerald-500 text-white border-emerald-500 shadow-lg shadow-emerald-500/20"
                               : "bg-white text-gray-400 border-gray-100 hover:border-gray-200"
-                          }`}>
-                          {opt === "Yes" ? "⚡ Yes, There's a Penalty" : "✓ No Penalty"}
+                          }`}
+                        >
+                          {opt === "Yes"
+                            ? "⚡ Yes, There's a Penalty"
+                            : "✓ No Penalty"}
                         </button>
                       ))}
                     </div>
                   </div>
-
                   <AnimatePresence>
                     {formData.anyInterestPenalties === "Yes" && (
                       <motion.div
-                        initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
                         className="overflow-hidden space-y-4"
                       >
                         <div className="grid grid-cols-2 gap-4 pt-2">
-                          <Field label="Amount of Penalty" required error={errors.penaltyAmount} showErrors={showErrors}>
-                            <input type="number" value={formData.penaltyAmount}
-                              onChange={(e) => handleChange("penaltyAmount", e.target.value)}
-                              className={inpCls(showErrors && errors.penaltyAmount)} placeholder="₹ 0" />
+                          <Field
+                            label="Amount of Penalty"
+                            required
+                            error={errors.penaltyAmount}
+                            showErrors={showErrors}
+                          >
+                            <input
+                              type="number"
+                              value={formData.penaltyAmount}
+                              onChange={(e) =>
+                                handleChange("penaltyAmount", e.target.value)
+                              }
+                              className={inpCls(
+                                showErrors && errors.penaltyAmount
+                              )}
+                              placeholder="₹ 0"
+                            />
                           </Field>
-                          <Field label="Penalty %" required error={errors.penaltyPercentage} showErrors={showErrors}>
-                            <input type="number" value={formData.penaltyPercentage}
-                              onChange={(e) => handleChange("penaltyPercentage", e.target.value)}
-                              className={inpCls(showErrors && errors.penaltyPercentage)} placeholder="0" />
+                          <Field
+                            label="Penalty %"
+                            required
+                            error={errors.penaltyPercentage}
+                            showErrors={showErrors}
+                          >
+                            <input
+                              type="number"
+                              value={formData.penaltyPercentage}
+                              onChange={(e) =>
+                                handleChange(
+                                  "penaltyPercentage",
+                                  e.target.value
+                                )
+                              }
+                              className={inpCls(
+                                showErrors && errors.penaltyPercentage
+                              )}
+                              placeholder="0"
+                            />
                           </Field>
                         </div>
-
                         <div className="pt-4 border-t border-amber-200">
-                          <p className="text-[11px] font-black text-amber-800 uppercase tracking-widest mb-3">Cost Head Breakup for Penalties</p>
+                          <p className="text-[11px] font-black text-amber-800 uppercase tracking-widest mb-3">
+                            Cost Head Breakup for Penalties
+                          </p>
                           <div className="grid grid-cols-5 gap-2.5">
-                            {["ops", "temp", "recruitment", "projects", "others"].map((key) => (
+                            {[
+                              "ops",
+                              "temp",
+                              "recruitment",
+                              "projects",
+                              "others",
+                            ].map((key) => (
                               <div key={key}>
-                                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider text-center mb-1.5">{key}</label>
-                                <input type="number" value={formData[key]}
-                                  onChange={(e) => handleChange(key, e.target.value)}
+                                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider text-center mb-1.5">
+                                  {key}
+                                </label>
+                                <input
+                                  type="number"
+                                  value={formData[key]}
+                                  onChange={(e) =>
+                                    handleChange(key, e.target.value)
+                                  }
                                   className="w-full bg-white border-2 border-gray-100 hover:border-gray-200 focus:border-amber-400 focus:ring-4 focus:ring-amber-500/10 text-gray-700 text-xs text-center px-2 py-2.5 rounded-xl outline-none font-bold transition-all"
-                                  placeholder="0" />
+                                  placeholder="0"
+                                />
                               </div>
                             ))}
                           </div>
-
-                          <div className={`mt-3 flex items-center justify-between px-4 py-3 rounded-xl border-2 font-black text-sm transition-all ${
-                            Math.abs(totalPercentage - 100) < 0.01
-                              ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                              : "bg-rose-50 border-rose-200 text-rose-600"
-                          }`}>
+                          <div
+                            className={`mt-3 flex items-center justify-between px-4 py-3 rounded-xl border-2 font-black text-sm transition-all ${
+                              Math.abs(totalPercentage - 100) < 0.01
+                                ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                                : "bg-rose-50 border-rose-200 text-rose-600"
+                            }`}
+                          >
                             <span>Total Allocation</span>
                             <span>{totalPercentage.toFixed(2)}%</span>
                           </div>
                           {showErrors && errors.costHeadBreakdown && (
                             <p className="flex items-center gap-1 text-[11px] text-rose-500 font-semibold mt-1.5">
-                              <AlertCircle className="w-3 h-3 shrink-0" />{errors.costHeadBreakdown}
+                              <AlertCircle className="w-3 h-3 shrink-0" />
+                              {errors.costHeadBreakdown}
                             </p>
                           )}
                         </div>
@@ -620,12 +1227,17 @@ const AddStatutoryPayoutModal = ({ isOpen, onClose, entities = [], banks = [] })
                     disabled={loading}
                     className="flex items-center gap-2 px-8 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-black rounded-xl shadow-lg shadow-cyan-500/25 transition-all"
                   >
-                    {loading
-                      ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving…</>
-                      : <>Save Statutory Payout <ArrowRight className="w-4 h-4" /></>}
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" /> Saving…
+                      </>
+                    ) : (
+                      <>
+                        Save Statutory Payout <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
                   </button>
                 </div>
-
               </form>
             </div>
           </motion.div>
