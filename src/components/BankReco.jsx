@@ -1163,27 +1163,29 @@ const BankReco = () => {
   const fetchEntries = async () => {
     const { data, error } = await supabase
       .from("bank_entries")
-      .select(`
+      .select(
+        `
         *,
         bank_master(bank_name)
-      `)
+      `
+      )
       .eq("is_deleted", false)
       .neq("entry_type", "projection_pending")
       .order("date", { ascending: false });
-  
+
     if (!error) {
       const seen = new Set();
       const unique = [];
-  
+
       (data || []).forEach((e) => {
         const key = `${e.bank_id}-${e.amount}-${e.date}-${e.remarks}-${e.type}`;
-  
+
         if (!seen.has(key)) {
           seen.add(key);
           unique.push(e);
         }
       });
-  
+
       setEntries(unique);
     }
   };
@@ -1286,15 +1288,15 @@ const BankReco = () => {
       .select("*")
       .eq("bank_id", bankId)
       .eq("is_deleted", false);
-  
+
     if (error) return 0;
-  
+
     let balance = 0;
-  
+
     (data || []).forEach((e) => {
       balance += Number(e.amount || 0);
     });
-  
+
     return balance;
   };
 
@@ -1338,6 +1340,8 @@ const BankReco = () => {
             ? "Petty Cash"
             : flowType === "salary"
             ? "Salary Payout"
+            : flowType === "statutory"
+            ? "Statutory Payment"
             : flowType === "expense"
             ? "Expense"
             : flowType === "travel"
@@ -1352,7 +1356,8 @@ const BankReco = () => {
             ? "Payment Made"
             : entry.entry_type === "employee_payout"
             ? "Employee Payout"
-            : entry.entry_type === "statutory_payment"
+            : entry.entry_type === "statutory_payment" ||
+              entry.entry_type === "statutory_payout"
             ? "Statutory Payment"
             : entry.entry_type === "interest_penalty"
             ? "Interest / Penalty"
