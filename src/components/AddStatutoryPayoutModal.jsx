@@ -16,8 +16,6 @@ import {
   AlertTriangle,
   StickyNote,
   ShieldCheck,
-  Hash,
-  TrendingDown,
 } from "lucide-react";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -140,6 +138,7 @@ const StatutoryRecordsPanel = ({ onClose }) => {
   const [toast, setToast] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
+  const [search, setSearch] = useState("");
 
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
@@ -181,7 +180,6 @@ const StatutoryRecordsPanel = ({ onClose }) => {
   };
 
   // ── Edit helpers ───────────────────────────────────────────────────────────
-  // CHANGE 5: startEdit now stores original values needed for validation
   const startEdit = (row) => {
     setEditingId(row.id);
     setEditForm({
@@ -193,6 +191,7 @@ const StatutoryRecordsPanel = ({ onClose }) => {
       remarks: row.remarks ?? "",
       penalty: row.penalty ?? false,
       penalty_amount: String(row.penalty_amount ?? "0"),
+      payment_date: row.payment_date || "",
     });
   };
 
@@ -201,7 +200,6 @@ const StatutoryRecordsPanel = ({ onClose }) => {
   };
 
   // ── Save edit ──────────────────────────────────────────────────────────────
-  // CHANGE 4: validates against month remaining, updates pending correctly, syncs bank reco via trigger
   const handleSaveEdit = async () => {
     setDeletingId(editingId);
     try {
@@ -210,7 +208,6 @@ const StatutoryRecordsPanel = ({ onClose }) => {
       const monthTotalDue = parseFloat(editForm.month_total_due) || 0;
       const monthTotalPaid = parseFloat(editForm.month_total_paid) || 0;
 
-      // what other rows in the same month have paid (excluding this row)
       const otherRowsPaid = monthTotalPaid - oldPaid;
       const maxAllowed = monthTotalDue - otherRowsPaid;
 
@@ -236,6 +233,7 @@ const StatutoryRecordsPanel = ({ onClose }) => {
             pending <= 0 ? "paid" : newPaid > 0 ? "partial" : "pending",
           bank_id: editForm.bank_id || null,
           remarks: editForm.remarks || "",
+          payment_date: editForm.payment_date || null,
           penalty: editForm.penalty || false,
           penalty_amount: parseFloat(editForm.penalty_amount) || 0,
         })
@@ -253,71 +251,15 @@ const StatutoryRecordsPanel = ({ onClose }) => {
     }
   };
 
-  // ── Derived stats ──────────────────────────────────────────────────────────
-  // CHANGE 2: use month_total_paid and month_pending_due from view
-  // ── Derived stats ──────────────────────────────────────────────────────────
-  // De-duplicate by type+month before summing — avoids double-counting
-  const uniqueMonthMap = {};
-  records.forEach((r) => {
-    const key = `${r.type}__${r.month}`;
-    if (!uniqueMonthMap[key]) uniqueMonthMap[key] = r;
+  const filteredRecords = records.filter((r) => {
+    const q = search.toLowerCase();
+
+    return (
+      r.entity?.toLowerCase().includes(q) ||
+      r.type?.toLowerCase().includes(q) ||
+      r.bank_name?.toLowerCase().includes(q)
+    );
   });
-  const uniqueRecords = Object.values(uniqueMonthMap);
-
-  const totalPaid = uniqueRecords.reduce(
-    (s, r) => s + Number(r.month_total_paid || 0),
-    0
-  );
-  const totalPending = uniqueRecords.reduce(
-    (s, r) => s + Number(r.month_pending_due || 0),
-    0
-  );
-  const totalPenalty = records.reduce(
-    (s, r) => s + Number(r.penalty_amount || 0),
-    0
-  );
-  const overdue = records.filter((r) => r.delay_days > 0).length;
-
-  const statCards = [
-    {
-      label: "Records",
-      value: records.length,
-      color: "text-gray-800",
-      bg: "bg-gray-50",
-      border: "border-gray-200",
-      sub: "all time",
-    },
-    {
-      label: "Total Paid",
-      value: `₹${inr(totalPaid)}`,
-      color: "text-emerald-700",
-      bg: "bg-emerald-50",
-      border: "border-emerald-200",
-      sub: "outflow",
-    },
-    {
-      label: "Pending Due",
-      value: `₹${inr(totalPending)}`,
-      color: "text-rose-600",
-      bg: "bg-rose-50",
-      border: "border-rose-200",
-      sub: "outstanding",
-    },
-    {
-      label: "Overdue",
-      value: overdue,
-      color: "text-amber-700",
-      bg: "bg-amber-50",
-      border: "border-amber-200",
-      sub: `₹${inr(totalPenalty)} penalty`,
-    },
-  ];
-
-  const statusBadge = {
-    paid: "bg-emerald-50 text-emerald-600 border border-emerald-200",
-    partial: "bg-amber-50 text-amber-600 border border-amber-200",
-    pending: "bg-rose-50 text-rose-600 border border-rose-200",
-  };
 
   return (
     <motion.div
@@ -341,8 +283,7 @@ const StatutoryRecordsPanel = ({ onClose }) => {
             <div>
               <p className="text-sm font-black">Statutory Payout Records</p>
               <p className="text-[11px] text-cyan-200 mt-0.5">
-                {records.length} records · ₹{inr(totalPaid)} paid · ₹
-                {inr(totalPending)} pending · {overdue} overdue
+                Search · Filter · Export Records
               </p>
             </div>
           </div>
@@ -355,66 +296,52 @@ const StatutoryRecordsPanel = ({ onClose }) => {
         </div>
       </div>
 
-      {/* ── Stat Cards ── */}
-      <div className="grid grid-cols-4 gap-3 px-4 py-3 bg-white border-b border-gray-100 flex-shrink-0">
-        {statCards.map(({ label, value, color, bg, border, sub }) => (
-          <div
-            key={label}
-            className={`rounded-xl border-2 ${bg} ${border} px-3 py-2.5`}
-          >
-            <div className="flex items-start justify-between gap-1">
-              <div className="min-w-0">
-                <p className="text-[9px] font-bold uppercase tracking-widest text-gray-500 mb-0.5">
-                  {label}
-                </p>
-                <p className={`text-sm font-black ${color} truncate`}>
-                  {value}
-                </p>
-                {sub && (
-                  <p className="text-[9px] text-gray-400 mt-0.5 truncate">
-                    {sub}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
+      {/* Search Bar */}
+      <div className="px-4 py-3 border-b bg-white">
+        <input
+          type="text"
+          placeholder="Search entity / type / bank..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full border-2 border-gray-100 rounded-xl px-4 py-2 text-sm outline-none focus:border-cyan-400"
+        />
       </div>
 
       {/* ── List ── */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-2.5 bg-gray-50/50">
+      <div className="flex-1 overflow-y-auto bg-gray-50/50">
         {loading ? (
           <div className="flex items-center justify-center py-20 text-gray-300">
             <Loader2 className="w-6 h-6 animate-spin mr-2" />
             <span className="text-sm font-medium">Loading…</span>
           </div>
-        ) : records.length === 0 ? (
+        ) : filteredRecords.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-gray-300">
             <FileCheck className="w-10 h-10 mb-3 opacity-40" />
             <p className="text-sm font-semibold">No records yet</p>
           </div>
         ) : (
-          records.map((row) => (
+          filteredRecords.map((row) => (
             <motion.div
               key={row.id}
               layout
               animate={{ opacity: deletingId === row.id ? 0.4 : 1 }}
-              className={`bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden ${
+              className={`bg-white border-b border-gray-100 ${
                 deletingId === row.id ? "pointer-events-none" : ""
               }`}
             >
-              {/* ── Card header ── */}
               <div className="flex items-start justify-between gap-3 p-4">
                 <div className="flex-1 min-w-0">
-                  {/* CHANGE 3: Badge row — entity / type / month / bank / penalty */}
                   <div className="flex items-center gap-2 flex-wrap mb-1.5">
                     <span className="font-black text-gray-900 text-sm">
                       {row.type}
                     </span>
                     <span
                       className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        statusBadge[row.calculated_status] ||
-                        "bg-gray-100 text-gray-500"
+                        row.calculated_status === "paid"
+                          ? "bg-emerald-50 text-emerald-600 border border-emerald-200"
+                          : row.calculated_status === "partial"
+                          ? "bg-amber-50 text-amber-600 border border-amber-200"
+                          : "bg-rose-50 text-rose-600 border border-rose-200"
                       }`}
                     >
                       {row.calculated_status?.toUpperCase()}
@@ -424,15 +351,9 @@ const StatutoryRecordsPanel = ({ onClose }) => {
                         ⚡ Penalty
                       </span>
                     )}
-                    {row.delay_days > 0 && (
-                      <span className="text-[10px] bg-rose-50 text-rose-500 border border-rose-200 px-2 py-0.5 rounded-full font-bold">
-                        {row.delay_days}d late
-                      </span>
-                    )}
                   </div>
 
-                  {/* Meta row: Entity · Month · Bank */}
-                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 mb-3">
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 mb-2">
                     <span className="text-[11px] text-gray-500 font-semibold">
                       Entity:{" "}
                       <span className="text-gray-700">{row.entity}</span>
@@ -453,69 +374,35 @@ const StatutoryRecordsPanel = ({ onClose }) => {
                         Bank: {row.bank_name}
                       </span>
                     )}
+                    {row.payment_date && (
+                      <span className="text-[11px] text-gray-500 font-semibold">
+                        Paid:{" "}
+                        <span className="text-gray-700">
+                          {new Date(row.payment_date).toLocaleDateString(
+                            "en-IN",
+                            {
+                              day: "numeric",
+                              month: "short",
+                              year: "numeric",
+                            }
+                          )}
+                        </span>
+                      </span>
+                    )}
                   </div>
 
-                  {/* CHANGE 3: Amounts — This Payment / Month Total Due / Still Remaining */}
-                  {editingId !== row.id && (
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="bg-gray-50 rounded-xl px-2.5 py-2 text-center">
-                        <p className="text-[9px] text-gray-400 font-bold uppercase mb-0.5">
-                          This Payment
-                        </p>
-                        <p className="text-xs font-black text-gray-700">
-                          ₹{inr(row.total_paid)}
-                        </p>
-                      </div>
-                      <div className="bg-blue-50 rounded-xl px-2.5 py-2 text-center">
-                        <p className="text-[9px] text-blue-500 font-bold uppercase mb-0.5">
-                          Month Total Due
-                        </p>
-                        <p className="text-xs font-black text-blue-700">
-                          ₹{inr(row.month_total_due)}
-                        </p>
-                      </div>
-                      <div
-                        className={`rounded-xl px-2.5 py-2 text-center ${
-                          Number(row.month_pending_due) > 0
-                            ? "bg-rose-50"
-                            : "bg-emerald-50"
-                        }`}
-                      >
-                        <p
-                          className={`text-[9px] font-bold uppercase mb-0.5 ${
-                            Number(row.month_pending_due) > 0
-                              ? "text-rose-400"
-                              : "text-emerald-400"
-                          }`}
-                        >
-                          Still Remaining
-                        </p>
-                        <p
-                          className={`text-xs font-black ${
-                            Number(row.month_pending_due) > 0
-                              ? "text-rose-600"
-                              : "text-emerald-500"
-                          }`}
-                        >
-                          {Number(row.month_pending_due) > 0
-                            ? `₹${inr(row.month_pending_due)}`
-                            : "Cleared"}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Any Interest / Penalties indicator */}
-                  {row.penalty &&
-                    Number(row.penalty_amount) > 0 &&
-                    editingId !== row.id && (
-                      <div className="mt-2 flex items-center gap-1.5 text-[10px] text-amber-700 font-semibold bg-amber-50 border border-amber-200 px-2.5 py-1.5 rounded-lg">
-                        ⚡ Interest / Penalty: ₹{inr(row.penalty_amount)}
-                      </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-bold text-gray-700">
+                      ₹{inr(row.total_paid)}
+                    </span>
+                    {Number(row.penalty_amount) > 0 && (
+                      <span className="text-xs font-bold text-amber-600">
+                        Penalty: ₹{inr(row.penalty_amount)}
+                      </span>
                     )}
+                  </div>
                 </div>
 
-                {/* Action buttons */}
                 <div className="flex-shrink-0 pt-0.5 flex flex-col gap-1.5">
                   {deletingId === row.id ? (
                     <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
@@ -580,7 +467,6 @@ const StatutoryRecordsPanel = ({ onClose }) => {
                     exit={{ opacity: 0, height: 0 }}
                     className="overflow-hidden border-t border-cyan-100 bg-cyan-50/40 px-4 py-3"
                   >
-                    {/* CHANGE 6: Month Total Due (read only) + This Payment (editable) */}
                     <div className="grid grid-cols-2 gap-3 mb-3">
                       <EditInput
                         label="Month Total Due (₹)"
@@ -595,7 +481,6 @@ const StatutoryRecordsPanel = ({ onClose }) => {
                         }
                       />
                     </div>
-                    {/* CHANGE 6: Month Remaining (auto) + Penalty Amount */}
                     <div className="grid grid-cols-2 gap-3 mb-3">
                       <EditInput
                         label="Month Remaining (auto)"
@@ -620,6 +505,16 @@ const StatutoryRecordsPanel = ({ onClose }) => {
                         }
                       />
                     </div>
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <EditInput
+                        label="Payment Date"
+                        type="date"
+                        value={editForm.payment_date}
+                        onChange={(e) =>
+                          handleEditChange("payment_date", e.target.value)
+                        }
+                      />
+                    </div>
                     <div className="mb-3">
                       <label className="text-[9px] font-bold uppercase tracking-widest text-gray-400 block mb-1">
                         Remarks
@@ -638,7 +533,6 @@ const StatutoryRecordsPanel = ({ onClose }) => {
                       />
                     </div>
 
-                    {/* Live status indicator */}
                     {(() => {
                       const remaining = Math.max(
                         (parseFloat(editForm.month_total_due) || 0) -
@@ -716,6 +610,7 @@ const AddStatutoryPayoutModal = ({
     penaltyAmount: "",
     penaltyPercentage: "",
     remarks: "",
+    payment_date: "",
     ops: "100",
     temp: "",
     recruitment: "",
@@ -834,61 +729,45 @@ const AddStatutoryPayoutModal = ({
     try {
       const month = `${formData.forTheMonth}-01`;
 
-      // Check if row already exists for same entity + type + month
-      const { data: existing, error: fetchErr } = await supabase
-        .from("statutory_payments")
-        .select("id, total_paid, total_due")
-        .eq("entity", formData.entity)
-        .eq("type", formData.statutoryPayoutType)
-        .eq("month", month)
-        .maybeSingle();
-      if (fetchErr) throw fetchErr;
+      const { error } = await supabase.from("statutory_payments").insert([
+        {
+          entity: formData.entity,
+          bank_id: formData.bank_id,
+          month,
+          payment_date: formData.payment_date,
+          type: formData.statutoryPayoutType,
 
-      if (existing) {
-        // ACCUMULATE: add this payment to existing total_paid
-        // Keep original total_due (full liability), recalculate pending
-        const newTotalPaid =
-          Number(existing.total_paid) + Number(formData.totalPaid);
-        const newPending = Math.max(
-          Number(existing.total_due) - newTotalPaid,
-          0
-        );
+          // full liability for that month
+          total_due: Number(formData.totalDue),
 
-        const { error } = await supabase
-          .from("statutory_payments")
-          .update({
-            total_paid: newTotalPaid,
-            pending_due: newPending,
-            payment_status: newPending <= 0 ? "paid" : "partial",
-            bank_id: formData.bank_id,
-            remarks: formData.remarks,
-            penalty: formData.anyInterestPenalties === "Yes",
-            penalty_amount: Number(formData.penaltyAmount || 0),
-            // total_due stays as original full liability — DO NOT overwrite
-          })
-          .eq("id", existing.id);
-        if (error) throw error;
-      } else {
-        // First time this type+month — INSERT with full liability as total_due
-        const { error } = await supabase.from("statutory_payments").insert([
-          {
-            entity: formData.entity,
-            bank_id: formData.bank_id,
-            month,
-            type: formData.statutoryPayoutType,
-            total_due: Number(formData.totalDue), // full original liability
-            total_paid: Number(formData.totalPaid),
-            pending_due: Number(formData.pendingDue),
-            penalty: formData.anyInterestPenalties === "Yes",
-            penalty_amount: Number(formData.penaltyAmount || 0),
-            remarks: formData.remarks,
-            projection_status: "actual",
-            payment_status:
-              Number(formData.pendingDue) <= 0 ? "paid" : "partial",
-          },
-        ]);
-        if (error) throw error;
-      }
+          // ONLY THIS PAYMENT
+          total_paid: Number(formData.totalPaid),
+
+          pending_due: Number(formData.pendingDue),
+
+          penalty: formData.anyInterestPenalties === "Yes",
+
+          penalty_amount: Number(formData.penaltyAmount || 0),
+
+          remarks: formData.remarks,
+
+          projection_status: "actual",
+
+          payment_status: Number(formData.pendingDue) <= 0 ? "paid" : "partial",
+
+          ops_percentage: Number(formData.ops || 0),
+
+          temp_percentage: Number(formData.temp || 0),
+
+          recruitment_percentage: Number(formData.recruitment || 0),
+
+          projects_percentage: Number(formData.projects || 0),
+
+          others_percentage: Number(formData.others || 0),
+        },
+      ]);
+
+      if (error) throw error;
 
       window.refreshDashboard?.();
       alert("✅ Statutory Payment Saved");
@@ -914,6 +793,7 @@ const AddStatutoryPayoutModal = ({
       penaltyAmount: "",
       penaltyPercentage: "",
       remarks: "",
+      payment_date: "",
       ops: "100",
       temp: "",
       recruitment: "",
@@ -1090,7 +970,7 @@ const AddStatutoryPayoutModal = ({
                   title="Payment Information"
                   color="emerald"
                 >
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-4 gap-4">
                     <Field
                       label="Total Due"
                       required
@@ -1122,6 +1002,16 @@ const AddStatutoryPayoutModal = ({
                         }
                         className={inpCls(showErrors && errors.totalPaid)}
                         placeholder="₹ 0"
+                      />
+                    </Field>
+                    <Field label="Payment Date" required>
+                      <input
+                        type="date"
+                        value={formData.payment_date}
+                        onChange={(e) =>
+                          handleChange("payment_date", e.target.value)
+                        }
+                        className={inpCls()}
                       />
                     </Field>
                     <Field label="Pending Due" hint="Auto-calculated">
