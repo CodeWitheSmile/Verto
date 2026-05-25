@@ -212,7 +212,13 @@ const AddInvoiceModal = ({
       const finalGst = isManualGst ? Number(formData.gst) || 0 : gstCalc;
 
       // Invoice Value: NEVER auto-set for OS — user types it
-      const invoiceValueNum = Number(formData.invoiceValue) || 0;
+      // Invoice Value auto-calculate for OS
+      const invoiceCalc = baseAmount + finalGst;
+
+      // If user manually edits invoice value, keep manual value
+      const invoiceValueNum = isManualReceivable
+        ? Number(formData.invoiceValue) || 0
+        : invoiceCalc;
 
       // Receivable: auto = invoiceValue - finalTds, unless manually overridden
       const receivableCalc = invoiceValueNum - finalTds;
@@ -222,14 +228,22 @@ const AddInvoiceModal = ({
 
       setFormData((prev) => ({
         ...prev,
+
         gst: isManualGst ? prev.gst : gstCalc.toFixed(2),
+
         tds: isManualTds ? prev.tds : tdsCalc.toFixed(2),
-        // invoiceValue intentionally NOT updated for OS
+
+        // Auto-fill invoice value but allow override
+        invoiceValue: isManualReceivable
+          ? prev.invoiceValue
+          : customRound(invoiceCalc),
+
         receivableRs: isManualReceivable
           ? prev.receivableRs
           : isNaN(receivableCalc)
           ? ""
           : customRound(receivableCalc),
+
         vertoFeePostTds: vertoFeePostTds.toFixed(2),
       }));
     } else {
@@ -330,8 +344,10 @@ const AddInvoiceModal = ({
 
     const gstMismatch = Math.abs(Number(fd.gst) - expectedGST) > tolerance;
     const tdsMismatch = Math.abs(Number(fd.tds) - expectedTDS) > tolerance;
-    const invoiceMismatch =
-      Math.abs(Number(fd.invoiceValue) - expectedInvoice) > tolerance;
+    // OS invoices are manual — do not compare with auto expected value
+    const invoiceMismatch = isOS
+      ? false
+      : Math.abs(Number(fd.invoiceValue) - expectedInvoice) > tolerance;
     const receivableMismatch = isOS
       ? Math.abs(Number(fd.receivableRs) - expectedReceivable) > tolerance
       : false; // REC receivable is always auto, no mismatch check needed
