@@ -186,8 +186,8 @@ const AddInvoiceModal = ({
     const dept = formData.department;
     const isOS = dept === "OS";
 
-    const baseAmount = vertoFee + pay + (isOS ? grossValue : 0);
-    const tdsBase = pay + vertoFee + (isOS ? grossValue : 0);
+    const baseAmount = vertoFee + pay;
+    const tdsBase = pay + vertoFee;
 
     const gstCalc = baseAmount * 0.18;
 
@@ -320,13 +320,12 @@ const AddInvoiceModal = ({
     const tolerance = 50;
     const vertoFeeNum = Number(fd.vertoFee) || 0;
     const payNum = Number(fd.pay) || 0;
-    const grossValueNum = Number(fd.grossValue) || 0;
     const isOS = fd.department === "OS";
 
-    const base = vertoFeeNum + payNum + (isOS ? grossValueNum : 0);
+    const base = vertoFeeNum + payNum;
     const expectedGST = 0.18 * base;
 
-    const tdsBase = payNum + vertoFeeNum + (isOS ? grossValueNum : 0);
+    const tdsBase = payNum + vertoFeeNum;
     const tdsRate = fd.tdsPercent
       ? Number(fd.tdsPercent) / 100
       : isOS

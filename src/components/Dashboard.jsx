@@ -566,10 +566,15 @@ const Dashboard = ({
   React.useEffect(() => {
     fetchInvoices();
     fetchBanks();
+  }, []); // run once on mount
 
+  // Always keep these updated
+  React.useEffect(() => {
     window.refreshDashboard = fetchInvoices;
     window.refreshBanks = fetchBanks;
+  }, [fetchInvoices, fetchBanks]);
 
+  React.useEffect(() => {
     const channel = supabase
       .channel("realtime-all")
       .on(
@@ -617,7 +622,7 @@ const Dashboard = ({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [refreshFlag, fetchInvoices, fetchBanks]);
+  }, [fetchInvoices]);
 
   const source = dbData.length ? dbData : data;
   const departments = [...new Set(source.map((d) => d.dept))];
@@ -628,9 +633,7 @@ const Dashboard = ({
     let sourceData = dbData.length > 0 ? dbData : data;
 
     sourceData = sourceData.filter((row) =>
-      showCompleted
-        ? row.is_completed === true
-        : row.is_completed !== true
+      showCompleted ? Boolean(row.is_completed) : !Boolean(row.is_completed)
     );
 
     let filtered = sourceData.filter((row) => {
@@ -1524,9 +1527,7 @@ const Dashboard = ({
                     </td>
                     <td className="center">
                       {row.is_completed ? (
-                        <span className="status-pill completed">
-                          Completed
-                        </span>
+                        <span className="status-pill completed">Completed</span>
                       ) : row.gstMismatch || row.tdsMismatch ? (
                         <span className="status-pill mismatch">Mismatch</span>
                       ) : (

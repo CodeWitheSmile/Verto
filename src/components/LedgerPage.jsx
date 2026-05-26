@@ -72,7 +72,9 @@ const DeleteModal = ({ invoiceId, onConfirm, onCancel, loading }) => (
         You are about to permanently delete:
       </p>
       <div className="bg-red-50 border border-red-100 rounded-xl p-3 mb-4 space-y-1 text-xs text-red-700 font-medium">
-        <p>🧾 Invoice <span className="font-bold">{invoiceId}</span></p>
+        <p>
+          🧾 Invoice <span className="font-bold">{invoiceId}</span>
+        </p>
         <p>💳 All Payments Received & Made</p>
         <p>🔄 Bounce Back entries</p>
         <p>📝 Credit Notes / Bad Debt</p>
@@ -132,13 +134,15 @@ const LedgerPage = () => {
     try {
       const { data: inv, error: invErr } = await supabase
         .from("invoices")
-        .select(`
+        .select(
+          `
           id,
           invoice_value,
           receivable_amount,
           invoice_number,
           is_completed
-        `)
+        `
+        )
         .eq("id", invoice.dbId)
         .single();
 
@@ -252,9 +256,7 @@ const LedgerPage = () => {
     setCompleteLoading(true);
 
     try {
-      const rpc = isCompleted
-        ? "uncomplete_invoice"
-        : "complete_invoice";
+      const rpc = isCompleted ? "uncomplete_invoice" : "complete_invoice";
 
       const { error } = await supabase.rpc(rpc, {
         p_invoice_id: invoice.dbId,
@@ -263,6 +265,11 @@ const LedgerPage = () => {
       if (error) throw error;
 
       setIsCompleted(!isCompleted);
+      await fetchLedger();
+
+      if (window.refreshDashboard) {
+        await window.refreshDashboard();
+      }
 
       alert(
         isCompleted
@@ -275,7 +282,6 @@ const LedgerPage = () => {
       if (window.refreshDashboard) {
         window.refreshDashboard();
       }
-
     } catch (err) {
       console.error(err);
 
@@ -288,16 +294,35 @@ const LedgerPage = () => {
   // ── DELETE INVOICE ──────────────────────────────────────────────────────────
   const handleDeleteInvoice = async () => {
     if (!invoice?.dbId) return;
+    console.log("Deleting dbId:", invoice.dbId, "| invoice.id:", invoice.id);
     setDeleteLoading(true);
     try {
+      // Resolve dbId safely in case it's missing
+      let invoiceDbId = invoice.dbId;
+      if (!invoiceDbId && invoice.id) {
+        const { data } = await supabase
+          .from("invoices")
+          .select("id")
+          .eq("invoice_number", invoice.id)
+          .single();
+        invoiceDbId = data?.id;
+      }
+
+      if (!invoiceDbId) throw new Error("Could not resolve invoice ID");
+
       const { error } = await supabase.rpc("delete_invoice_complete", {
-        p_invoice_id: invoice.dbId,
+        p_invoice_id: invoiceDbId,
       });
 
       if (error) throw error;
 
       setShowDeleteModal(false);
-      alert("Invoice deleted successfully.");
+      window.ledgerInvoice = null;
+
+      if (window.refreshDashboard) {
+        await window.refreshDashboard();
+      }
+
       window.setActiveTab?.("dashboard");
     } catch (err) {
       console.error("Delete invoice error:", err);
@@ -383,7 +408,7 @@ const LedgerPage = () => {
 
           <button
             onClick={() => setShowDeleteModal(true)}
-            disabled={loading}
+            disabled={deleteLoading}
             className="flex items-center gap-2 px-3 py-2 text-sm text-white bg-red-600 rounded-xl hover:bg-red-700 transition disabled:opacity-50"
           >
             <Trash2 className="w-4 h-4" />
