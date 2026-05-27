@@ -111,6 +111,7 @@ const AddInvoiceModal = ({
     invoiceEntity: "",
     department: "",
     payHead: "",
+    employeeName: "", // ← ADDED: employee name for REC/TEMP
     client: "",
     ledgerName: "",
     invoiceDate: "",
@@ -220,6 +221,7 @@ const AddInvoiceModal = ({
       ...prev,
       invoiceEntity: selectedInvoice?.entity_name ?? "",
       department: selectedInvoice?.dept_code ?? "",
+      employeeName: selectedInvoice?.employee_name ?? "", // ← ADDED: populate employee name on edit
       client: selectedInvoice?.client_name ?? "",
       ledgerName: selectedInvoice?.ledger_name ?? "",
       payHead: selectedInvoice?.pay_head ?? "",
@@ -453,6 +455,10 @@ const AddInvoiceModal = ({
     const newErrors = {};
     if (!formData.invoiceEntity) newErrors.invoiceEntity = "Entity is required";
     if (!formData.department) newErrors.department = "Department is required";
+    // ← ADDED: Employee name validation for REC/TEMP
+    if (["REC", "TEMP"].includes(formData.department) && !formData.employeeName.trim()) {
+      newErrors.employeeName = "Employee name is required for REC/TEMP";
+    }
     if (!formData.client.trim()) newErrors.client = "Client is required";
     if (!formData.ledgerName.trim())
       newErrors.ledgerName = "Ledger name is required";
@@ -597,6 +603,7 @@ const AddInvoiceModal = ({
 
       const payload = {
         invoice_number: formData.invoiceNo,
+        employee_name: formData.employeeName || null, // ← ADDED: employee_name in payload
         client_id: clientRow.id,
         department_id: deptRow.id,
         entity_id: entityRow.id,
@@ -710,6 +717,7 @@ const AddInvoiceModal = ({
     setFormData({
       invoiceEntity: "",
       department: "",
+      employeeName: "", // ← ADDED: reset employee name
       client: "",
       ledgerName: "",
       invoiceDate: "",
@@ -950,6 +958,24 @@ const AddInvoiceModal = ({
                       <ErrorMessage error={errors.client} />
                     </div>
                   </div>
+
+                  {/* ← ADDED: Employee Name field for REC/TEMP departments */}
+                  {["REC", "TEMP"].includes(formData.department) && (
+                    <div className="mt-4">
+                      <label className={lbl}>
+                        Employee Name
+                        <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.employeeName || ""}
+                        onChange={(e) => handleChange("employeeName", e.target.value)}
+                        className={fi("employeeName")}
+                        placeholder="Enter Employee Name"
+                      />
+                      <ErrorMessage error={errors.employeeName} />
+                    </div>
+                  )}
 
                   <div className="mt-4">
                     <label className={lbl}>
