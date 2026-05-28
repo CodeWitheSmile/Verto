@@ -709,7 +709,7 @@ const AddStatutoryPayoutModal = ({
   ]);
 
   const calculateTotalPercentage = () =>
-    ["ops", "temp", "recruitment", "projects", "others"].reduce(
+    ["OS", "temp", "recruitment", "projects", "others"].reduce(
       (s, k) => s + (parseFloat(formData[k]) || 0),
       0
     );
@@ -1167,7 +1167,7 @@ const AddStatutoryPayoutModal = ({
                           </p>
                           <div className="grid grid-cols-5 gap-2.5">
                             {[
-                              "ops",
+                              "OS",
                               "temp",
                               "recruitment",
                               "projects",

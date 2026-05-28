@@ -33,9 +33,9 @@ const PAY_HEADS = [
   "Consultant Fee", "Petty Cash", "Others",
 ];
 
-const COST_HEADS = ["ops", "temp", "recruitment", "projects", "others"];
+const COST_HEADS = ["OS", "temp", "recruitment", "projects", "others"];
 const COST_HEAD_LABELS = {
-  ops: "Ops", temp: "Temp", recruitment: "Rec", projects: "Projects", others: "Others",
+  ops: "OS", temp: "Temp", recruitment: "Rec", projects: "Projects", others: "Others",
 };
 
 const ASSET_STOCK_STATUS = ["In Use", "In Stock", "Defective", "Disposed"];

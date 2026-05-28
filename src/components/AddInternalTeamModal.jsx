@@ -18,7 +18,7 @@ import supabase from "../lib/supabaseClient";
 
 // ─── Cost heads ───────────────────────────────────────────────
 const COST_HEADS = [
-  { key: "ops", label: "Ops", desc: "Operations" },
+  { key: "OS", label: "OS", desc: "Operations" },
   { key: "temp", label: "Temp", desc: "Temporary Staffing" },
   { key: "rec", label: "Rec", desc: "Recruitment" },
   { key: "projects", label: "Projects", desc: "Project-Based" },
@@ -571,7 +571,7 @@ const AddInternalTeamModal = ({
                     </option>
                     {[
                       "Common",
-                      "Ops",
+                      "OS",
                       "Temp",
                       "Rec",
                       "BD",

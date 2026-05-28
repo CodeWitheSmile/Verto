@@ -282,7 +282,7 @@ const downloadTemplate = () => {
     "Rahul Sharma",
     "Manager",
     "Verto India Pvt Ltd",
-    "Ops",
+    "OS",
     "Fixed Salary",
     "May 2026 salary",
     55000,
