@@ -143,14 +143,12 @@ const ProfitCenterPL = () => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // ── Default date range: last 12 months ────────────────────────
+  // ✅ FIXED: Default date range uses current Financial Year (April–March)
   useEffect(() => {
-    const to = new Date();
-    const from = new Date();
-    from.setMonth(from.getMonth() - 11);
-    from.setDate(1);
-    setDateFrom(from.toISOString().slice(0, 10));
-    setDateTo(to.toISOString().slice(0, 10));
+    const now = new Date();
+    const fyStartYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    setDateFrom(`${fyStartYear}-04-01`);
+    setDateTo(`${fyStartYear + 1}-03-31`);
   }, []);
 
   // ── Derived lists ──────────────────────────────────────────────
