@@ -480,7 +480,7 @@ const Dashboard = ({
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 12;
 
-  // ✅ CHANGE 1: Financial year state (after existing useState declarations)
+  // Financial year: April = month 3 (0-indexed), so FY starts April
   const getCurrentFY = () => {
     const now = new Date();
     return now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
@@ -491,7 +491,6 @@ const Dashboard = ({
   const fyEnd   = (fy) => new Date(fy + 1, 2, 31, 23, 59, 59); // Mar 31
   const fyLabel = (fy) => `FY ${String(fy).slice(2)}-${String(fy + 1).slice(2)}`; // FY 25-26
 
-  // ✅ FIX 1: fetchInvoices defined at component scope with useCallback
   const fetchInvoices = useCallback(async () => {
     console.log("🔥 FETCH RUNNING...");
     const { data: rows, error } = await supabase
@@ -523,7 +522,6 @@ const Dashboard = ({
         impact_month: row.impact_month ?? "",
         invDate: row.invoice_date ?? "",
         invDateObj: row.invoice_date ? new Date(row.invoice_date) : new Date(),
-        // ✅ CHANGE 4: Fix impact month display format
         impactMonth: row.impact_month
           ? new Date(row.impact_month).toLocaleDateString("en-GB", { month: "short", year: "2-digit" })
           : "",
@@ -580,9 +578,8 @@ const Dashboard = ({
   React.useEffect(() => {
     fetchInvoices();
     fetchBanks();
-  }, []); // run once on mount
+  }, []);
 
-  // Always keep these updated
   React.useEffect(() => {
     window.refreshDashboard = fetchInvoices;
     window.refreshBanks = fetchBanks;
@@ -643,7 +640,6 @@ const Dashboard = ({
   const clients = [...new Set(source.map((d) => d.client))];
   const entities = [...new Set(source.map((d) => d.entity).filter(Boolean))];
 
-  // ✅ CHANGE 2: Add FY filter inside filteredData useMemo
   const filteredData = useMemo(() => {
     let sourceData = dbData.length > 0 ? dbData : data;
 
@@ -727,10 +723,9 @@ const Dashboard = ({
     maxInvoiceValue,
     sortConfig,
     showCompleted,
-    selectedFY,   // ✅ ADDED: selectedFY to dependency array
+    selectedFY,
   ]);
 
-  // ✅ ADDED: selectedFY to the useEffect that resets currentPage
   React.useEffect(() => {
     setCurrentPage(1);
   }, [
@@ -744,7 +739,7 @@ const Dashboard = ({
     minInvoiceValue,
     maxInvoiceValue,
     showCompleted,
-    selectedFY,   // ✅ ADDED
+    selectedFY,
   ]);
 
   const totalPages = Math.ceil(filteredData.length / ITEMS_PER_PAGE);
@@ -881,9 +876,9 @@ const Dashboard = ({
           </div>
           <div className="stat-label">Total Invoiced</div>
           <div className="stat-value">₹{formatCurrency(totals.invValue)}</div>
-          <div className="stat-meta" style={{ color: "#059669" }}>
-            <ArrowUpRight size={13} />
-            <span>+12% from last period</span>
+          {/* ✅ FIXED: Replaced hardcoded "+12% from last period" with real invoice count */}
+          <div className="stat-meta" style={{ color: "#6b7280" }}>
+            <span>{filteredData.length} invoices</span>
           </div>
         </motion.div>
 
@@ -900,12 +895,13 @@ const Dashboard = ({
           <div className="stat-value" style={{ color: "#059669" }}>
             ₹{formatCurrency(totals.vertoFee)}
           </div>
+          {/* ✅ FIXED: Label changed to "% of invoice value" and precision to 2 decimal places */}
           <div className="stat-meta" style={{ color: "#6b7280" }}>
             <span>
               {totals.invValue
-                ? ((totals.vertoFee / totals.invValue) * 100).toFixed(1)
-                : 0}
-              % avg margin
+                ? ((totals.vertoFee / totals.invValue) * 100).toFixed(2)
+                : "0.00"}
+              % of invoice value
             </span>
           </div>
         </motion.div>
@@ -923,13 +919,14 @@ const Dashboard = ({
           <div className="stat-value" style={{ color: "#e11d48" }}>
             ₹{formatCurrency(totals.notRecvd)}
           </div>
+          {/* ✅ FIXED: Label changed to "% of invoiced" and precision to 2 decimal places */}
           <div className="stat-meta" style={{ color: "#e11d48" }}>
             <ArrowDownLeft size={13} />
             <span>
               {totals.invValue
-                ? ((totals.notRecvd / totals.invValue) * 100).toFixed(1)
-                : 0}
-              % of total
+                ? ((totals.notRecvd / totals.invValue) * 100).toFixed(2)
+                : "0.00"}
+              % of invoiced
             </span>
           </div>
         </motion.div>
@@ -947,6 +944,7 @@ const Dashboard = ({
           <div className="stat-value" style={{ color: "#d97706" }}>
             ₹{formatCurrency(totals.cnBadDebt)}
           </div>
+          {/* Already real data — no change needed */}
           <div className="stat-meta" style={{ color: "#6b7280" }}>
             <span>
               {filteredData.filter((d) => d.cnBadDebt > 0).length} invoices
@@ -1128,7 +1126,7 @@ const Dashboard = ({
             </button>
           </div>
 
-          {/* ✅ CHANGE 3: FY navigation buttons in the filter bar */}
+          {/* FY navigation buttons + Active/Completed toggles */}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button onClick={() => setShowCompleted(false)} className={`chip ${!showCompleted ? "active-emerald" : ""}`}>
               Active Invoices
