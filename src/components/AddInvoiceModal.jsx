@@ -1,7 +1,15 @@
 import React, { useState, useEffect, useRef } from "react";
 import supabase from "../lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ArrowRight, AlertCircle, Calculator, Search, Plus, CheckCircle2 } from "lucide-react";
+import {
+  X,
+  ArrowRight,
+  AlertCircle,
+  Calculator,
+  Search,
+  Plus,
+  CheckCircle2,
+} from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
 const customRound = (num) => {
@@ -9,21 +17,26 @@ const customRound = (num) => {
   return decimal >= 0.75 ? Math.ceil(num) : Math.floor(num);
 };
 
-// ─── SEARCHABLE CLIENT DROPDOWN ───────────────────────────────────────────────
-// - Any role: substring search across existing clients
-// - Admin only: shows "+ Create new client" option when no exact match
-const ClientSearchInput = ({ value, onChange, clients, role, className, error }) => {
+const ClientSearchInput = ({
+  value,
+  onChange,
+  clients,
+  role,
+  className,
+  error,
+}) => {
   const [open, setOpen] = useState(false);
   const [inputVal, setInputVal] = useState(value || "");
   const wrapRef = useRef(null);
 
-  // Sync when parent resets form
-  useEffect(() => { setInputVal(value || ""); }, [value]);
+  useEffect(() => {
+    setInputVal(value || "");
+  }, [value]);
 
-  // Close on outside click
   useEffect(() => {
     const handler = (e) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+      if (wrapRef.current && !wrapRef.current.contains(e.target))
+        setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -35,7 +48,8 @@ const ClientSearchInput = ({ value, onChange, clients, role, className, error })
   const exactMatch = clients.some(
     (c) => c.client_name.toLowerCase() === inputVal.toLowerCase()
   );
-  const showCreate = role === "admin" && inputVal.trim().length > 0 && !exactMatch;
+  const showCreate =
+    role === "admin" && inputVal.trim().length > 0 && !exactMatch;
 
   const pick = (name) => {
     setInputVal(name);
@@ -50,20 +64,28 @@ const ClientSearchInput = ({ value, onChange, clients, role, className, error })
         <input
           type="text"
           value={inputVal}
-          onChange={(e) => { setInputVal(e.target.value); onChange(e.target.value); setOpen(true); }}
-          onFocus={() => { if (inputVal.length > 0) setOpen(true); }}
+          onChange={(e) => {
+            setInputVal(e.target.value);
+            onChange(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => {
+            if (inputVal.length > 0) setOpen(true);
+          }}
           placeholder="Type to search or add client…"
           className={`${className} pl-9`}
         />
       </div>
-
       {open && (filtered.length > 0 || showCreate) && (
         <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl max-h-56 overflow-y-auto">
           {filtered.map((c) => (
             <button
               key={c.id}
               type="button"
-              onMouseDown={(e) => { e.preventDefault(); pick(c.client_name); }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                pick(c.client_name);
+              }}
               className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-sm text-gray-800 border-b border-gray-100 last:border-0 flex items-center gap-2"
             >
               <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
@@ -73,7 +95,10 @@ const ClientSearchInput = ({ value, onChange, clients, role, className, error })
           {showCreate && (
             <button
               type="button"
-              onMouseDown={(e) => { e.preventDefault(); pick(inputVal.trim()); }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                pick(inputVal.trim());
+              }}
               className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-sm font-semibold text-blue-700 flex items-center gap-2 border-t border-gray-100"
             >
               <Plus className="w-4 h-4 text-blue-600 flex-shrink-0" />
@@ -82,8 +107,6 @@ const ClientSearchInput = ({ value, onChange, clients, role, className, error })
           )}
         </div>
       )}
-
-      {/* Status hints below the input */}
       {exactMatch && inputVal.trim() && (
         <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
           <CheckCircle2 className="w-3 h-3" /> Existing client
@@ -98,7 +121,6 @@ const ClientSearchInput = ({ value, onChange, clients, role, className, error })
   );
 };
 
-// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 const AddInvoiceModal = ({
   isOpen,
   onClose,
@@ -111,7 +133,7 @@ const AddInvoiceModal = ({
     invoiceEntity: "",
     department: "",
     payHead: "",
-    employeeName: "", // ← ADDED: employee name for REC/TEMP
+    employeeName: "",
     client: "",
     ledgerName: "",
     invoiceDate: "",
@@ -129,7 +151,6 @@ const AddInvoiceModal = ({
     bankName: "",
     invoiceDescription: "",
     refNoPaymentMade: "",
-    // OS Department specific fields
     employeeCount: "",
     grossValue: "",
     netInHand: "",
@@ -149,13 +170,11 @@ const AddInvoiceModal = ({
     expectedOutflowTax: "",
   });
 
-  // ── OS-specific manual override flags ──────────────────────────
   const [isManualTds, setIsManualTds] = useState(false);
   const [isManualGst, setIsManualGst] = useState(false);
   const [isManualReceivable, setIsManualReceivable] = useState(false);
 
   const [banks, setBanks] = useState([]);
-  // ── LOCAL clients list — fetched fresh so new additions appear immediately ──
   const [clientsList, setClientsList] = useState([]);
   const [errors, setErrors] = useState({});
   const [showErrors, setShowErrors] = useState(false);
@@ -168,11 +187,13 @@ const AddInvoiceModal = ({
     { value: "OTH", label: "OTH (Others)" },
   ];
 
-  // ── Fetch banks + clients from DB ───────────────────────────────
   const fetchMasters = async () => {
     const [banksRes, clientsRes] = await Promise.all([
       supabase.from("bank_master").select("id, bank_name"),
-      supabase.from("clients_master").select("id, client_name, ledger_name").order("client_name"),
+      supabase
+        .from("clients_master")
+        .select("id, client_name, ledger_name")
+        .order("client_name"),
     ]);
     if (!banksRes.error) setBanks(banksRes.data || []);
     if (!clientsRes.error) setClientsList(clientsRes.data || []);
@@ -182,12 +203,11 @@ const AddInvoiceModal = ({
     if (isOpen) fetchMasters();
   }, [isOpen]);
 
-  // Merge prop clients (string array from parent) with locally fetched DB rows,
-  // deduplicated by client_name so both sources are covered.
   const mergedClients = React.useMemo(() => {
     const map = new Map();
     clients.forEach((name) => {
-      if (typeof name === "string") map.set(name.toLowerCase(), { id: name, client_name: name });
+      if (typeof name === "string")
+        map.set(name.toLowerCase(), { id: name, client_name: name });
     });
     clientsList.forEach((c) => map.set(c.client_name.toLowerCase(), c));
     return Array.from(map.values()).sort((a, b) =>
@@ -195,7 +215,7 @@ const AddInvoiceModal = ({
     );
   }, [clients, clientsList]);
 
-  // ── Auto-fetch ledger when client changes (edit mode) ──────────
+  // Auto-fetch ledger when client changes
   useEffect(() => {
     if (!formData.client) return;
     const match = clientsList.find(
@@ -206,26 +226,28 @@ const AddInvoiceModal = ({
     }
   }, [formData.client, clientsList]);
 
-  // ── Populate form when editing an existing invoice ──────────────
+  // Populate form on edit — wait for banks to load
   useEffect(() => {
     if (!selectedInvoice || banks.length === 0) return;
     setIsManualTds(false);
     setIsManualGst(false);
     setIsManualReceivable(false);
 
-    console.log("🔥 EDIT DATA FULL:", selectedInvoice);
-
-    const selectedBank = banks.find((b) => b.id === selectedInvoice.bank_id);
+    // FIX 1: Find bank by ID first, fall back to bank_name string
+    const selectedBank =
+      banks.find((b) => b.id === selectedInvoice.bank_id) ||
+      banks.find((b) => b.bank_name === selectedInvoice.bank_name);
 
     setFormData((prev) => ({
       ...prev,
       invoiceEntity: selectedInvoice?.entity_name ?? "",
       department: selectedInvoice?.dept_code ?? "",
-      employeeName: selectedInvoice?.employee_name ?? "", // ← ADDED: populate employee name on edit
+      employeeName: selectedInvoice?.employee_name ?? "",
       client: selectedInvoice?.client_name ?? "",
       ledgerName: selectedInvoice?.ledger_name ?? "",
       payHead: selectedInvoice?.pay_head ?? "",
-      bankName: selectedBank?.bank_name ?? "",
+      // FIX 1: Use bank_name string so <select> value matches options
+      bankName: selectedBank?.bank_name ?? selectedInvoice?.bank_name ?? "",
       invoiceDate: selectedInvoice?.invoice_date ?? "",
       impactMonth: selectedInvoice?.impact_month
         ? selectedInvoice.impact_month.slice(5, 7) +
@@ -239,6 +261,7 @@ const AddInvoiceModal = ({
       gst: selectedInvoice?.gst ?? "",
       tds: selectedInvoice?.tds ?? "",
       invoiceValue: selectedInvoice?.invoice_value ?? "",
+      // FIX 5: Show current DB receivable for display; DB trigger protects write
       receivableRs: selectedInvoice?.receivable_amount ?? "",
       employeeCount: selectedInvoice?.employee_count ?? "",
       grossValue: selectedInvoice?.gross_value ?? "",
@@ -252,24 +275,20 @@ const AddInvoiceModal = ({
     }));
   }, [selectedInvoice, banks]);
 
-  // ── Field change handler ─────────────────────────────────────────
   const handleChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
-
-    // Reset auto-flags when source inputs change
     if (["pay", "vertoFee", "tdsPercent", "grossValue"].includes(field)) {
       setIsManualTds(false);
       if (["pay", "vertoFee", "grossValue"].includes(field)) {
         setIsManualGst(false);
       }
     }
-
     if (errors[field]) {
       setErrors((prev) => ({ ...prev, [field]: "" }));
     }
   };
 
-  // ── Core auto-calculation effect ─────────────────────────────────
+  // Core auto-calculation
   useEffect(() => {
     const pay = parseFloat(formData.pay);
     const vertoFee = parseFloat(formData.vertoFee);
@@ -278,10 +297,8 @@ const AddInvoiceModal = ({
 
     const dept = formData.department;
     const isOS = dept === "OS";
-
     const baseAmount = vertoFee + pay;
     const tdsBase = pay + vertoFee;
-
     const gstCalc = baseAmount * 0.18;
 
     let tdsRate;
@@ -293,9 +310,6 @@ const AddInvoiceModal = ({
 
     const tdsCalc = tdsBase * tdsRate;
     const finalTds = isManualTds ? Number(formData.tds) || 0 : tdsCalc;
-
-    const invoiceCalc = baseAmount + gstCalc;
-
     const vertoFeePostTds =
       tdsBase > 0 ? vertoFee - finalTds * (vertoFee / tdsBase) : 0;
 
@@ -314,10 +328,14 @@ const AddInvoiceModal = ({
         ...prev,
         gst: isManualGst ? prev.gst : gstCalc.toFixed(2),
         tds: isManualTds ? prev.tds : tdsCalc.toFixed(2),
-        invoiceValue: isManualReceivable ? prev.invoiceValue : customRound(invoiceCalc),
+        invoiceValue: isManualReceivable
+          ? prev.invoiceValue
+          : customRound(invoiceCalc),
         receivableRs: isManualReceivable
           ? prev.receivableRs
-          : isNaN(receivableCalc) ? "" : customRound(receivableCalc),
+          : isNaN(receivableCalc)
+          ? ""
+          : customRound(receivableCalc),
         vertoFeePostTds: vertoFeePostTds.toFixed(2),
       }));
     } else {
@@ -346,7 +364,7 @@ const AddInvoiceModal = ({
     isManualReceivable,
   ]);
 
-  // ── OS CTC auto-calculation ──────────────────────────────────────
+  // OS CTC auto-calc
   useEffect(() => {
     if (formData.department === "OS") {
       const netInHand = parseFloat(formData.netInHand) || 0;
@@ -368,7 +386,7 @@ const AddInvoiceModal = ({
     formData.department,
   ]);
 
-  // ── OS expected outflow dates auto-fill ─────────────────────────
+  // OS outflow dates
   useEffect(() => {
     if (!formData.invoiceDate || formData.department !== "OS") return;
     const invDate = new Date(formData.invoiceDate);
@@ -376,55 +394,43 @@ const AddInvoiceModal = ({
     nextMonth.setMonth(nextMonth.getMonth() + 1);
     const year = nextMonth.getFullYear();
     const month = nextMonth.getMonth();
-    const pfDate = new Date(year, month, 15);
-    const gstDate = new Date(year, month, 21);
-    const taxDate = new Date(year, month, 7);
     setFormData((prev) => ({
       ...prev,
-      expectedOutflowPF: pfDate.toISOString().split("T")[0],
-      expectedOutflowESI: pfDate.toISOString().split("T")[0],
-      expectedOutflowGST: gstDate.toISOString().split("T")[0],
-      expectedOutflowTax: taxDate.toISOString().split("T")[0],
+      expectedOutflowPF: new Date(year, month, 15).toISOString().split("T")[0],
+      expectedOutflowESI: new Date(year, month, 15).toISOString().split("T")[0],
+      expectedOutflowGST: new Date(year, month, 21).toISOString().split("T")[0],
+      expectedOutflowTax: new Date(year, month, 7).toISOString().split("T")[0],
     }));
   }, [formData.invoiceDate, formData.department]);
 
-  // ── Mismatch detection (shared helper) ──────────────────────────
   const getMismatchData = (fd) => {
     const tolerance = 50;
     const vertoFeeNum = Number(fd.vertoFee) || 0;
     const payNum = Number(fd.pay) || 0;
     const isOS = fd.department === "OS";
-
     const base = vertoFeeNum + payNum;
     const expectedGST = 0.18 * base;
-
     const tdsBase = payNum + vertoFeeNum;
     const tdsRate = fd.tdsPercent
       ? Number(fd.tdsPercent) / 100
-      : isOS ? 0.02 : 0.1;
+      : isOS
+      ? 0.02
+      : 0.1;
     const expectedTDS = tdsBase * tdsRate;
-
     const expectedInvoice = base + expectedGST;
-
     const invoiceValueNum = Number(fd.invoiceValue) || 0;
     const expectedReceivable = isOS
       ? invoiceValueNum - Number(fd.tds || expectedTDS)
       : expectedInvoice - Number(fd.tds || expectedTDS);
-
-    const gstMismatch = Math.abs(Number(fd.gst) - expectedGST) > tolerance;
-    const tdsMismatch = Math.abs(Number(fd.tds) - expectedTDS) > tolerance;
-    const invoiceMismatch = isOS
-      ? false
-      : Math.abs(Number(fd.invoiceValue) - expectedInvoice) > tolerance;
-    const receivableMismatch = isOS
-      ? Math.abs(Number(fd.receivableRs) - expectedReceivable) > tolerance
-      : false;
-
     return {
-      gstMismatch,
-      tdsMismatch,
-      invoiceMismatch,
-      receivableMismatch,
+      gstMismatch: Math.abs(Number(fd.gst) - expectedGST) > tolerance,
+      tdsMismatch: Math.abs(Number(fd.tds) - expectedTDS) > tolerance,
+      invoiceMismatch: isOS
+        ? false
+        : Math.abs(Number(fd.invoiceValue) - expectedInvoice) > tolerance,
+      receivableMismatch: isOS
+        ? Math.abs(Number(fd.receivableRs) - expectedReceivable) > tolerance
+        : false,
       expectedGST,
       expectedTDS,
       expectedInvoice,
@@ -443,20 +449,20 @@ const AddInvoiceModal = ({
     expectedInvoice,
     expectedReceivable,
   } = mismatch;
-
   const hasMismatch =
     gstMismatch ||
     tdsMismatch ||
     invoiceMismatch ||
     (formData.department === "OS" && receivableMismatch);
 
-  // ── Validation ───────────────────────────────────────────────────
   const validateForm = () => {
     const newErrors = {};
     if (!formData.invoiceEntity) newErrors.invoiceEntity = "Entity is required";
     if (!formData.department) newErrors.department = "Department is required";
-    // ← ADDED: Employee name validation for REC/TEMP
-    if (["REC", "TEMP"].includes(formData.department) && !formData.employeeName.trim()) {
+    if (
+      ["REC", "TEMP"].includes(formData.department) &&
+      !formData.employeeName.trim()
+    ) {
       newErrors.employeeName = "Employee name is required for REC/TEMP";
     }
     if (!formData.client.trim()) newErrors.client = "Client is required";
@@ -471,7 +477,6 @@ const AddInvoiceModal = ({
     if (!formData.expectedCollectionDate)
       newErrors.expectedCollectionDate = "Expected collection date is required";
     if (!formData.bankName.trim()) newErrors.bankName = "Bank name is required";
-
     if (formData.department === "OS") {
       if (!formData.employeeCount)
         newErrors.employeeCount = "Employee count is required";
@@ -481,23 +486,19 @@ const AddInvoiceModal = ({
       if (!formData.invoiceValue)
         newErrors.invoiceValue = "Invoice value is required";
     }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  // ── Helpers ──────────────────────────────────────────────────────
   const formatImpactMonth = (val) => {
     if (!val) return null;
     const [mm, yy] = val.split("/");
     return `20${yy}-${mm}-01`;
   };
 
-  // ── Submit ───────────────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
     setShowErrors(true);
-
     if (!validateForm()) return;
 
     try {
@@ -534,7 +535,6 @@ const AddInvoiceModal = ({
           return;
         }
         clientRow = newClient;
-        // ── Refresh local list so the new client is immediately searchable ──
         await fetchMasters();
         if (window.refreshClients) window.refreshClients();
       }
@@ -568,11 +568,9 @@ const AddInvoiceModal = ({
         }
       }
 
-      // ── Mismatch popup on Save (for ALL departments) ─────────────
       if (hasMismatch) {
         const isOS = formData.department === "OS";
         let mismatchDetails = "⚠️ Values mismatch detected:\n\n";
-
         if (gstMismatch)
           mismatchDetails += `• GST: Entered ₹${Number(formData.gst).toFixed(
             2
@@ -589,21 +587,21 @@ const AddInvoiceModal = ({
           mismatchDetails += `• Receivable: Entered ₹${Number(
             formData.receivableRs
           ).toFixed(2)} | Expected ₹${expectedReceivable.toFixed(2)}\n`;
-
         mismatchDetails += "\nDo you still want to save?";
-        const confirmSave = window.confirm(mismatchDetails);
-        if (!confirmSave) return;
+        if (!window.confirm(mismatchDetails)) return;
       }
 
+      // FIX 1: Look up bank by name from the loaded banks list
       const selectedBank = banks.find((b) => b.bank_name === formData.bankName);
       if (!selectedBank || !selectedBank.id) {
         alert("❌ Invalid Bank Selected");
         return;
       }
 
+      // Base payload — all editable fields
       const payload = {
         invoice_number: formData.invoiceNo,
-        employee_name: formData.employeeName || null, // ← ADDED: employee_name in payload
+        employee_name: formData.employeeName || null,
         client_id: clientRow.id,
         department_id: deptRow.id,
         entity_id: entityRow.id,
@@ -616,6 +614,8 @@ const AddInvoiceModal = ({
         gst: Number(formData.gst),
         invoice_value: Number(formData.invoiceValue),
         tds: Number(formData.tds),
+        // NOTE: receivable_amount included for INSERT only —
+        // on UPDATE the DB BEFORE trigger recalculates it correctly
         receivable_amount: Number(formData.receivableRs),
         expected_collection_date: formData.expectedCollectionDate,
         employee_count: Number(formData.employeeCount) || 0,
@@ -633,14 +633,16 @@ const AddInvoiceModal = ({
       let insertedInvoice = null;
 
       if (selectedInvoice) {
-        console.log("🔥 UPDATE MODE");
+        // FIX 3: Strip DB-owned calculated fields on UPDATE
+        // DB BEFORE UPDATE trigger (guard_invoice_receivable_on_edit) recalculates
+        // receivable_amount, amount_received, cn_amount, status from source-of-truth tables
+        const { receivable_amount, ...editableFields } = payload;
         const res = await supabase
           .from("invoices")
-          .update(payload)
+          .update(editableFields)
           .eq("id", selectedInvoice.dbId);
         error = res.error;
       } else {
-        console.log("🔥 INSERT MODE");
         const res = await supabase
           .from("invoices")
           .insert([payload])
@@ -651,17 +653,12 @@ const AddInvoiceModal = ({
 
         // Link advance payment if ref provided
         if (formData.refNoPaymentMade && insertedInvoice) {
-          console.log(
-            "🔥 SEARCHING ADVANCE PAYMENT:",
-            formData.refNoPaymentMade
-          );
           const { data: advancePayment, error: advanceError } = await supabase
             .from("advance_payments")
             .select("*")
             .eq("payment_ref", formData.refNoPaymentMade)
             .maybeSingle();
 
-          console.log("ADVANCE PAYMENT:", advancePayment);
           if (advanceError) console.log(advanceError);
 
           if (advancePayment) {
@@ -687,7 +684,6 @@ const AddInvoiceModal = ({
                   is_adjusted: true,
                 })
                 .eq("id", advancePayment.id);
-              console.log("✅ ADVANCE PAYMENT LINKED");
               alert(
                 `✅ Advance Payment Linked Successfully\nRef: ${advancePayment.payment_ref}`
               );
@@ -712,12 +708,11 @@ const AddInvoiceModal = ({
     }
   };
 
-  // ── Reset ────────────────────────────────────────────────────────
   const resetForm = () => {
     setFormData({
       invoiceEntity: "",
       department: "",
-      employeeName: "", // ← ADDED: reset employee name
+      employeeName: "",
       client: "",
       ledgerName: "",
       invoiceDate: "",
@@ -766,16 +761,12 @@ const AddInvoiceModal = ({
     onClose();
   };
 
-  // ── Style helpers ────────────────────────────────────────────────
   const inp =
     "w-full bg-white border text-gray-800 px-3.5 py-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors placeholder-gray-400";
   const inpNormal = `${inp} border-gray-200`;
   const inpErr = `${inp} border-rose-400 bg-rose-50`;
-  const inpWarn = `${inp} border-amber-400 bg-amber-50`;
   const inpAuto =
     "w-full bg-blue-50 border border-blue-200 text-blue-700 px-3.5 py-2.5 rounded-lg text-sm font-mono font-semibold";
-  const inpAutoWarn =
-    "w-full bg-amber-50 border border-amber-400 text-amber-800 px-3.5 py-2.5 rounded-lg text-sm font-mono font-semibold";
 
   const fi = (field) => (showErrors && errors[field] ? inpErr : inpNormal);
   const card = "bg-white border border-gray-200 rounded-xl p-5 shadow-sm";
@@ -862,7 +853,6 @@ const AddInvoiceModal = ({
             {/* Form */}
             <div className="p-6 overflow-y-auto max-h-[calc(90vh-82px)] bg-gray-50/60">
               <form onSubmit={handleSubmit} className="space-y-4">
-                {/* ── OS mode banner ─────────────────────────────── */}
                 {isOS && (
                   <motion.div
                     initial={{ opacity: 0, y: -6 }}
@@ -872,19 +862,19 @@ const AddInvoiceModal = ({
                     <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-amber-500" />
                     <div>
                       <span className="font-semibold">OS Invoice mode</span>
-                      {" — "}GST auto-fills but is editable · TDS auto from TDS%
-                      but overridable ·{" "}
+                      {" — "}
+                      GST auto-fills but is editable · TDS auto from TDS% but
+                      overridable ·{" "}
                       <span className="font-semibold">
                         Invoice Value must be entered manually
                       </span>
                       {" · "}Receivable auto-calculates from Invoice Value − TDS
-                      but is overridable. Mismatches are flagged inline and
-                      confirmed on Save.
+                      but is overridable.
                     </div>
                   </motion.div>
                 )}
 
-                {/* ── Section 1: Basic Invoice Details ─────────────────── */}
+                {/* Section 1: Basic Info */}
                 <div className={card}>
                   <h3 className={sectionTitle}>
                     <span className="w-5 h-5 rounded-md bg-blue-600 flex items-center justify-center shrink-0">
@@ -937,7 +927,6 @@ const AddInvoiceModal = ({
                       <ErrorMessage error={errors.department} />
                     </div>
 
-                    {/* ── CLIENT — replaced datalist with ClientSearchInput ── */}
                     <div>
                       <label className={lbl}>
                         Client <span className="text-rose-500">*</span>
@@ -959,17 +948,17 @@ const AddInvoiceModal = ({
                     </div>
                   </div>
 
-                  {/* ← ADDED: Employee Name field for REC/TEMP departments */}
                   {["REC", "TEMP"].includes(formData.department) && (
                     <div className="mt-4">
                       <label className={lbl}>
-                        Employee Name
-                        <span className="text-rose-500">*</span>
+                        Employee Name <span className="text-rose-500">*</span>
                       </label>
                       <input
                         type="text"
                         value={formData.employeeName || ""}
-                        onChange={(e) => handleChange("employeeName", e.target.value)}
+                        onChange={(e) =>
+                          handleChange("employeeName", e.target.value)
+                        }
                         className={fi("employeeName")}
                         placeholder="Enter Employee Name"
                       />
@@ -996,18 +985,14 @@ const AddInvoiceModal = ({
                       <label className={lbl}>
                         Ledger Name <span className="text-rose-500">*</span>
                       </label>
+                      {/* FIX 2: Removed readOnly — ledger editable in both add and edit mode */}
                       <input
                         type="text"
                         value={formData.ledgerName || ""}
-                        readOnly={!!selectedInvoice}
                         onChange={(e) =>
                           handleChange("ledgerName", e.target.value)
                         }
-                        className={
-                          selectedInvoice
-                            ? `${inpNormal} bg-gray-50 text-gray-500 cursor-default`
-                            : fi("ledgerName")
-                        }
+                        className={fi("ledgerName")}
                         placeholder="Ledger name"
                       />
                       <ErrorMessage error={errors.ledgerName} />
@@ -1046,7 +1031,7 @@ const AddInvoiceModal = ({
                   </div>
                 </div>
 
-                {/* ── Section 2: Financial Details ──────────────────────── */}
+                {/* Section 2: Financial Details */}
                 <div className={card}>
                   <h3 className={sectionTitle}>
                     <span className="w-5 h-5 rounded-md bg-blue-600 flex items-center justify-center shrink-0 text-white font-bold text-[10px]">
@@ -1101,7 +1086,6 @@ const AddInvoiceModal = ({
                     </div>
                   </div>
 
-                  {/* GST — auto-fill for all, manual override allowed, mismatch alert */}
                   <div className="grid grid-cols-3 gap-4 mt-4">
                     <div>
                       <label className={lbl}>
@@ -1148,7 +1132,7 @@ const AddInvoiceModal = ({
 
                     <div>
                       <label className={lbl}>
-                        TDS
+                        TDS{" "}
                         <span className="ml-1 text-gray-400 normal-case font-normal">
                           (auto · overridable)
                         </span>
@@ -1175,15 +1159,14 @@ const AddInvoiceModal = ({
                   </div>
 
                   <div className="grid grid-cols-3 gap-4 mt-4">
-                    {/* Invoice Value — MANUAL for OS, auto for REC */}
                     <div>
                       <label className={lbl}>
                         Invoice Value
-                        {isOS ? (
+                        {isOS && (
                           <span className="ml-1 text-rose-500 normal-case font-normal">
                             * (enter manually)
                           </span>
-                        ) : null}
+                        )}
                       </label>
                       <input
                         type="number"
@@ -1191,7 +1174,6 @@ const AddInvoiceModal = ({
                         onChange={(e) =>
                           handleChange("invoiceValue", e.target.value)
                         }
-                        readOnly={!isOS && false}
                         className={
                           showErrors && errors.invoiceValue
                             ? inpErr
@@ -1211,7 +1193,6 @@ const AddInvoiceModal = ({
                       />
                     </div>
 
-                    {/* Verto Fee Post TDS — always auto, read-only */}
                     <div>
                       <label className={lbl}>Verto Fee (Post TDS)</label>
                       <input
@@ -1223,7 +1204,6 @@ const AddInvoiceModal = ({
                       />
                     </div>
 
-                    {/* Receivable — auto for REC, auto+overridable for OS */}
                     <div>
                       <label className={lbl}>
                         Receivable Rs
@@ -1246,7 +1226,7 @@ const AddInvoiceModal = ({
                               ? `${inp} border-amber-400 bg-amber-50`
                               : inpNormal
                           }
-                          placeholder="Auto: InvoiceValue − TDS"
+                          placeholder="Auto: InvoiceValue − TDS − Payments received"
                         />
                       ) : (
                         <input
@@ -1285,26 +1265,26 @@ const AddInvoiceModal = ({
                       </p>
                     </div>
 
+                    {/* FIX 1: Replaced <input list> + <datalist> with proper <select> */}
                     <div>
                       <label className={lbl}>
                         Bank Name &amp; Acct No{" "}
                         <span className="text-rose-500">*</span>
                       </label>
-                      <input
-                        type="text"
-                        list="banks-list"
+                      <select
                         value={formData.bankName || ""}
                         onChange={(e) =>
                           handleChange("bankName", e.target.value)
                         }
                         className={fi("bankName")}
-                        placeholder="Type or select"
-                      />
-                      <datalist id="banks-list">
+                      >
+                        <option value="">Select Bank</option>
                         {banks.map((bank) => (
-                          <option key={bank.id} value={bank.bank_name} />
+                          <option key={bank.id} value={bank.bank_name}>
+                            {bank.bank_name}
+                          </option>
                         ))}
-                      </datalist>
+                      </select>
                       <ErrorMessage error={errors.bankName} />
                     </div>
                   </div>
@@ -1342,7 +1322,7 @@ const AddInvoiceModal = ({
                   </div>
                 </div>
 
-                {/* ── Section 3: OS Extra Fields ────────────────────────── */}
+                {/* Section 3: OS Extra Fields */}
                 {isOS && (
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
@@ -1419,9 +1399,6 @@ const AddInvoiceModal = ({
                           className={inpNormal}
                           placeholder="₹ 0"
                         />
-                        <p className="text-xs text-rose-500 mt-1">
-                          Gross Value - Co
-                        </p>
                       </div>
                       <div>
                         <label className={lbl}>
@@ -1436,9 +1413,6 @@ const AddInvoiceModal = ({
                           className={inpNormal}
                           placeholder="₹ 0"
                         />
-                        <p className="text-xs text-rose-500 mt-1">
-                          Gross Value - Co
-                        </p>
                       </div>
                       <div>
                         <label className={lbl}>LWF Tax</label>
@@ -1540,85 +1514,52 @@ const AddInvoiceModal = ({
                     </div>
 
                     <div className="grid grid-cols-5 gap-4 mt-4">
-                      <div>
-                        <label className={lbl}>
-                          Expected Outflow "In hand"
-                        </label>
-                        <input
-                          type="date"
-                          value={formData.expectedOutflowInHand}
-                          onChange={(e) =>
-                            handleChange(
-                              "expectedOutflowInHand",
-                              e.target.value
-                            )
-                          }
-                          className={inpNormal}
-                        />
-                      </div>
-                      <div>
-                        <label className={lbl}>Expected Outflow "PF"</label>
-                        <input
-                          type="date"
-                          value={formData.expectedOutflowPF}
-                          onChange={(e) =>
-                            handleChange("expectedOutflowPF", e.target.value)
-                          }
-                          className={inpNormal}
-                        />
-                        <p className="text-xs text-gray-400 mt-1">
-                          As per master due date
-                        </p>
-                      </div>
-                      <div>
-                        <label className={lbl}>Expected Outflow "ESI"</label>
-                        <input
-                          type="date"
-                          value={formData.expectedOutflowESI}
-                          onChange={(e) =>
-                            handleChange("expectedOutflowESI", e.target.value)
-                          }
-                          className={inpNormal}
-                        />
-                        <p className="text-xs text-gray-400 mt-1">
-                          As per master due date
-                        </p>
-                      </div>
-                      <div>
-                        <label className={lbl}>Expected Outflow "GST"</label>
-                        <input
-                          type="date"
-                          value={formData.expectedOutflowGST}
-                          onChange={(e) =>
-                            handleChange("expectedOutflowGST", e.target.value)
-                          }
-                          className={inpNormal}
-                        />
-                        <p className="text-xs text-gray-400 mt-1">
-                          As per master due date
-                        </p>
-                      </div>
-                      <div>
-                        <label className={lbl}>
-                          Expected Outflow "Tax Deducted"
-                        </label>
-                        <input
-                          type="date"
-                          value={formData.expectedOutflowTax}
-                          onChange={(e) =>
-                            handleChange("expectedOutflowTax", e.target.value)
-                          }
-                          className={inpNormal}
-                        />
-                        <p className="text-xs text-gray-400 mt-1">
-                          As per master due date
-                        </p>
-                      </div>
+                      {[
+                        {
+                          field: "expectedOutflowInHand",
+                          label: 'Expected Outflow "In hand"',
+                        },
+                        {
+                          field: "expectedOutflowPF",
+                          label: 'Expected Outflow "PF"',
+                          hint: "As per master due date",
+                        },
+                        {
+                          field: "expectedOutflowESI",
+                          label: 'Expected Outflow "ESI"',
+                          hint: "As per master due date",
+                        },
+                        {
+                          field: "expectedOutflowGST",
+                          label: 'Expected Outflow "GST"',
+                          hint: "As per master due date",
+                        },
+                        {
+                          field: "expectedOutflowTax",
+                          label: 'Expected Outflow "Tax Deducted"',
+                          hint: "As per master due date",
+                        },
+                      ].map(({ field, label, hint }) => (
+                        <div key={field}>
+                          <label className={lbl}>{label}</label>
+                          <input
+                            type="date"
+                            value={formData[field]}
+                            onChange={(e) =>
+                              handleChange(field, e.target.value)
+                            }
+                            className={inpNormal}
+                          />
+                          {hint && (
+                            <p className="text-xs text-gray-400 mt-1">{hint}</p>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </motion.div>
                 )}
 
-                {/* ── Footer ───────────────────────────────────────────── */}
+                {/* Footer */}
                 <div className="flex items-center justify-between pt-4 border-t border-gray-200">
                   <button
                     type="button"
