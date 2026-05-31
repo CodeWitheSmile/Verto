@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import ReactDOM from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import * as XLSX from "xlsx";
@@ -23,6 +23,8 @@ import {
   ChevronRight,
   CheckCircle2,
   Clock,
+  ArrowUpDown,
+  ChevronUp,
 } from "lucide-react";
 
 import supabase from "../lib/supabaseClient";
@@ -86,6 +88,155 @@ const TypeBadge = ({ type }) => {
       />
       {isInvoice ? "Invoice" : "Advance"}
     </span>
+  );
+};
+
+/* ─────────────────────────────────────────────
+   Searchable Dropdown — Invoice · Client filter
+───────────────────────────────────────────── */
+const SearchableDropdown = ({ rows, value, onChange }) => {
+  const [open, setOpen]   = useState(false);
+  const [query, setQuery] = useState("");
+  const wrapRef           = useRef(null);
+
+  const options = useMemo(() => {
+    const seen = new Set();
+    const out  = [{ label: "All Payments", invoiceKey: "" }];
+    rows.forEach((r) => {
+      const key = r.invoice_number
+        ? `inv:${r.invoice_number}`
+        : `client:${r.client_name}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        const label = r.invoice_number
+          ? `${r.invoice_number}${r.client_name ? " · " + r.client_name : ""}`
+          : r.client_name || "Unknown";
+        out.push({ label, invoiceKey: key, isInvoice: !!r.invoice_number });
+      }
+    });
+    return out;
+  }, [rows]);
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) return options;
+    const q = query.toLowerCase();
+    return options.filter((o) => o.label.toLowerCase().includes(q));
+  }, [options, query]);
+
+  const selected = options.find((o) => o.invoiceKey === value);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const pick = (opt) => { onChange(opt.invoiceKey); setQuery(""); setOpen(false); };
+
+  return (
+    <div className="relative w-72" ref={wrapRef}>
+      <button
+        type="button"
+        onClick={() => { setOpen((p) => !p); setQuery(""); }}
+        className="w-full flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-left hover:border-emerald-400 transition-colors shadow-sm"
+      >
+        <Search size={12} className="text-slate-400 flex-shrink-0" />
+        <span className={`flex-1 truncate font-semibold ${value ? "text-emerald-800" : "text-slate-500"}`}>
+          {value ? selected?.label || "Selected" : "All Payments"}
+        </span>
+        <ChevronDown size={12} className={`text-slate-400 transition-transform flex-shrink-0 ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -4, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -4, scale: 0.98 }}
+            transition={{ duration: 0.12 }}
+            className="absolute z-50 top-full mt-1 left-0 right-0 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden"
+          >
+            <div className="p-2 border-b border-slate-100">
+              <div className="relative">
+                <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  autoFocus
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Type invoice no. or client…"
+                  className="w-full pl-7 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-500 text-black placeholder-slate-400"
+                />
+              </div>
+            </div>
+            <div className="max-h-56 overflow-y-auto">
+              {filtered.length === 0 ? (
+                <p className="px-4 py-3 text-xs text-slate-400 text-center">No matches found</p>
+              ) : (
+                filtered.map((opt) => (
+                  <button
+                    key={opt.invoiceKey}
+                    type="button"
+                    onMouseDown={(e) => { e.preventDefault(); pick(opt); }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-emerald-50 transition-colors border-b border-slate-50 last:border-0 ${opt.invoiceKey === value ? "bg-emerald-50" : ""}`}
+                  >
+                    {opt.invoiceKey === "" ? (
+                      <span className="w-4 h-4 rounded-full bg-slate-200 flex-shrink-0" />
+                    ) : opt.isInvoice ? (
+                      <FileText size={12} className="text-emerald-500 flex-shrink-0" />
+                    ) : (
+                      <Building2 size={12} className="text-teal-500 flex-shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      {opt.invoiceKey === "" ? (
+                        <span className="text-xs font-semibold text-slate-600">All Payments</span>
+                      ) : (
+                        <>
+                          {opt.isInvoice && (
+                            <span className="text-[10px] font-bold text-emerald-700 font-mono block leading-none">
+                              {opt.label.split(" · ")[0]}
+                            </span>
+                          )}
+                          <span className="text-xs text-slate-700 font-medium truncate block">
+                            {opt.isInvoice ? opt.label.split(" · ").slice(1).join(" · ") : opt.label}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    {opt.invoiceKey === value && <CheckCircle2 size={12} className="text-emerald-500 ml-auto flex-shrink-0" />}
+                  </button>
+                ))
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+/* ─────────────────────────────────────────────
+   Sort Header
+───────────────────────────────────────────── */
+const SortTh = ({ label, field, sortField, sortDir, onSort }) => {
+  const active = sortField === field;
+  return (
+    <th
+      onClick={() => onSort(field)}
+      className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-widest whitespace-nowrap border-b border-emerald-900/20 cursor-pointer select-none group"
+      style={{ background: "#022c22", color: active ? "#34d399" : "#6ee7b7" }}
+    >
+      <div className="flex items-center gap-1">
+        {label}
+        <span className="opacity-60 group-hover:opacity-100 transition-opacity">
+          {active
+            ? sortDir === "asc" ? <ChevronUp size={10} /> : <ChevronDown size={10} />
+            : <ArrowUpDown size={10} />}
+        </span>
+      </div>
+    </th>
   );
 };
 
@@ -738,8 +889,11 @@ const ViewPaymentReceivedModal = ({ isOpen, onClose, invoice, onRefresh }) => {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("All");
-  const [exporting, setExporting] = useState(false);
-  const [activeTab, setActiveTab] = useState("payments"); // "payments" | "monthly"
+  const [filterKey, setFilterKey]   = useState("");
+  const [sortField, setSortField]   = useState("payment_date");
+  const [sortDir, setSortDir]       = useState("desc");
+  const [exporting, setExporting]   = useState(false);
+  const [activeTab, setActiveTab]   = useState("payments");
 
   // Edit state
   const [editingRow, setEditingRow] = useState(null);
@@ -848,6 +1002,9 @@ const ViewPaymentReceivedModal = ({ isOpen, onClose, invoice, onRefresh }) => {
     if (isOpen) {
       setSearch("");
       setFilterType("All");
+      setFilterKey("");
+      setSortField("payment_date");
+      setSortDir("desc");
       setEditingRow(null);
       setDeletingRow(null);
       setActiveTab("payments");
@@ -855,7 +1012,11 @@ const ViewPaymentReceivedModal = ({ isOpen, onClose, invoice, onRefresh }) => {
     }
   }, [isOpen, fetchAll]);
 
-  if (!isOpen) return null;
+  /* ── Sort handler ── */
+  const handleSort = (field) => {
+    if (sortField === field) setSortDir((d) => d === "asc" ? "desc" : "asc");
+    else { setSortField(field); setSortDir("asc"); }
+  };
 
   /* ── EDIT: open panel ── */
   const startEdit = (row) => {
@@ -945,25 +1106,48 @@ const ViewPaymentReceivedModal = ({ isOpen, onClose, invoice, onRefresh }) => {
     }
   };
 
-  /* ── Filtered rows ── */
-  const filtered = rows.filter((r) => {
-    const q = search.toLowerCase();
-    const matchSearch =
-      !q ||
-      (r.payment_ref || "").toLowerCase().includes(q) ||
-      (r.invoice_number || "").toLowerCase().includes(q) ||
-      (r.client_name || "").toLowerCase().includes(q) ||
-      (r.ledger_name || "").toLowerCase().includes(q) ||
-      (r.bank_name || "").toLowerCase().includes(q) ||
-      (r.remarks || "").toLowerCase().includes(q);
+  /* ── Filtered + Sorted rows ── */
+  const filtered = useMemo(() => {
+    let out = rows.filter((r) => {
+      const q = search.toLowerCase();
+      const matchSearch =
+        !q ||
+        (r.payment_ref || "").toLowerCase().includes(q) ||
+        (r.invoice_number || "").toLowerCase().includes(q) ||
+        (r.client_name || "").toLowerCase().includes(q) ||
+        (r.ledger_name || "").toLowerCase().includes(q) ||
+        (r.bank_name || "").toLowerCase().includes(q) ||
+        (r.remarks || "").toLowerCase().includes(q);
 
-    const matchType =
-      filterType === "All" ||
-      (filterType === "Invoice" && r._type === "invoice") ||
-      (filterType === "Advance" && r._type === "advance");
+      const matchType =
+        filterType === "All" ||
+        (filterType === "Invoice" && r._type === "invoice") ||
+        (filterType === "Advance" && r._type === "advance");
 
-    return matchSearch && matchType;
-  });
+      let matchKey = true;
+      if (filterKey) {
+        if (filterKey.startsWith("inv:"))
+          matchKey = r.invoice_number === filterKey.slice(4);
+        else if (filterKey.startsWith("client:"))
+          matchKey = r.client_name === filterKey.slice(7);
+      }
+
+      return matchSearch && matchType && matchKey;
+    });
+
+    out = [...out].sort((a, b) => {
+      let av = a[sortField], bv = b[sortField];
+      if (sortField === "amount") { av = Number(av || 0); bv = Number(bv || 0); }
+      else { av = (av || "").toString().toLowerCase(); bv = (bv || "").toString().toLowerCase(); }
+      if (av < bv) return sortDir === "asc" ? -1 : 1;
+      if (av > bv) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    return out;
+  }, [rows, search, filterKey, filterType, sortField, sortDir]);
+
+  if (!isOpen) return null;
 
   const totalAmount = filtered.reduce((s, r) => s + Number(r.amount || 0), 0);
   const invoiceTotal = filtered
@@ -1083,7 +1267,7 @@ const ViewPaymentReceivedModal = ({ isOpen, onClose, invoice, onRefresh }) => {
                   value: fmt(advanceTotal),
                   icon: ArrowDownCircle,
                 },
-              ].map(({ label, value, color, bg, icon: Icon }, i) => (
+              ].map(({ label, value, icon: Icon }, i) => (
                 <div
                   key={`${label}-${i}`}
                   className="bg-white/10 border border-white/15 rounded-2xl px-3 py-2.5 flex items-center gap-2"
@@ -1161,24 +1345,26 @@ const ViewPaymentReceivedModal = ({ isOpen, onClose, invoice, onRefresh }) => {
             <>
               {/* ── FILTERS ── */}
               <div className="flex-shrink-0 px-5 pt-4 pb-3 border-b border-slate-100 space-y-3 bg-white">
-                <div className="relative">
-                  <Search
-                    size={14}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Search ref, invoice, client, ledger, bank, remarks…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2.5 text-sm text-black placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
-                  />
+                {/* Row 1: text search + searchable dropdown */}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="relative flex-1 min-w-[200px]">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Search ref, client, ledger, bank, remarks…"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2.5 text-sm text-black placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                    />
+                  </div>
+                  <SearchableDropdown rows={rows} value={filterKey} onChange={setFilterKey} />
                 </div>
+                {/* Row 2: type pills + clear + count */}
                 <div className="flex items-center gap-2 flex-wrap">
                   <Filter size={12} className="text-slate-400" />
-                  {["All", "Invoice", "Advance"].map((t, i) => (
+                  {["All", "Invoice", "Advance"].map((t) => (
                     <button
-                      key={`${t}-${i}`}
+                      key={t}
                       onClick={() => setFilterType(t)}
                       className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
                         filterType === t
@@ -1189,6 +1375,17 @@ const ViewPaymentReceivedModal = ({ isOpen, onClose, invoice, onRefresh }) => {
                       {t}
                     </button>
                   ))}
+                  {(filterKey || search) && (
+                    <button
+                      onClick={() => { setFilterKey(""); setSearch(""); }}
+                      className="ml-2 px-3 py-1 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700 hover:bg-rose-200 transition-all flex items-center gap-1"
+                    >
+                      <X size={10} /> Clear Filters
+                    </button>
+                  )}
+                  <span className="ml-auto text-[11px] text-slate-400 font-medium">
+                    {filtered.length} record{filtered.length !== 1 ? "s" : ""}
+                  </span>
                 </div>
               </div>
 
@@ -1215,27 +1412,17 @@ const ViewPaymentReceivedModal = ({ isOpen, onClose, invoice, onRefresh }) => {
                   <table className="min-w-full text-sm border-collapse">
                     <thead className="sticky top-0 z-10">
                       <tr>
-                        {[
-                          "Type",
-                          "Ref No.",
-                          "Invoice",
-                          "Client",
-                          "Ledger",
-                          "Entity / Dept",
-                          "Amount",
-                          "Date",
-                          "Bank",
-                          "Remarks",
-                          "Actions",
-                        ].map((h) => (
-                          <th
-                            key={h}
-                            className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-widest whitespace-nowrap border-b border-emerald-900/20"
-                            style={{ background: "#022c22", color: "#6ee7b7" }}
-                          >
-                            {h}
-                          </th>
-                        ))}
+                        <SortTh label="Type"        field="invoice_number" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                        <SortTh label="Ref No."     field="payment_ref"    sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                        <SortTh label="Invoice"     field="invoice_number" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                        <SortTh label="Client"      field="client_name"    sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                        <SortTh label="Ledger"      field="ledger_name"    sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                        <SortTh label="Entity/Dept" field="entity_name"    sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                        <SortTh label="Amount"      field="amount"         sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                        <SortTh label="Date"        field="payment_date"   sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                        <SortTh label="Bank"        field="bank_name"      sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                        <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-widest whitespace-nowrap border-b border-emerald-900/20" style={{ background: "#022c22", color: "#6ee7b7" }}>Remarks</th>
+                        <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-widest whitespace-nowrap border-b border-emerald-900/20" style={{ background: "#022c22", color: "#6ee7b7" }}>Actions</th>
                       </tr>
                     </thead>
 

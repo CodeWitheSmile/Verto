@@ -793,7 +793,10 @@ const BankTransferModal = ({
       return;
     }
 
-    const senderRows = entries.filter((e) => e.bank_id === form.sender_bank_id);
+    // ✅ STEP 6: Fix bank_id type mismatch — cast both to string for comparison
+    const senderRows = entries.filter(
+      (e) => String(e.bank_id) === String(form.sender_bank_id)
+    );
     const currentBalance = senderRows.reduce((sum, e) => {
       const amt = Number(e.amount || 0);
       return e.type === "debit" ? sum - amt : sum + amt;
@@ -1160,6 +1163,7 @@ const BankReco = () => {
     if (!error) setBanks(data || []);
   };
 
+  // ✅ STEP 1: Fix deduplication — use e.id instead of composite key
   const fetchEntries = async () => {
     const { data, error } = await supabase
       .from("bank_entries")
@@ -1178,10 +1182,8 @@ const BankReco = () => {
       const unique = [];
 
       (data || []).forEach((e) => {
-        const key = `${e.bank_id}-${e.amount}-${e.date}-${e.remarks}-${e.type}`;
-
-        if (!seen.has(key)) {
-          seen.add(key);
+        if (!seen.has(e.id)) {
+          seen.add(e.id);
           unique.push(e);
         }
       });
@@ -1282,123 +1284,130 @@ const BankReco = () => {
     }
   };
 
-  const calculateSoftwareBalance = async (bankId) => {
-    const { data, error } = await supabase
-      .from("software_entries")
-      .select("*")
-      .eq("bank_id", bankId)
-      .eq("is_deleted", false);
-
-    if (error) return 0;
-
-    let balance = 0;
-
-    (data || []).forEach((e) => {
-      balance += Number(e.amount || 0);
-    });
-
-    return balance;
+  // ✅ STEP 2: Replace async DB-calling calculateSoftwareBalance with sync version
+  const calculateSoftwareBalance = (bankId, openingBalance = 0) => {
+    const bankSw = softwareEntries.filter(
+      (e) => String(e.bank_id) === String(bankId) && !e.is_deleted
+    );
+    const movement = bankSw.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+    return openingBalance + movement;
   };
 
-  // ─── BUILD RECO DATA ────────────────────────────────────────────────────────
-  const buildBankRecoData = async () => {
-    const grouped = {};
-    entries.forEach((entry) => {
-      if (!entry.bank_id) return;
-      const month = new Date(entry.date).toISOString().slice(0, 7);
-      const key = `${month}-${entry.bank_id}`;
-      if (!grouped[key]) {
-        grouped[key] = {
-          id: key,
-          month,
-          bank_id: entry.bank_id,
-          bank_name: entry.bank_master?.bank_name || "N/A",
-          date: entry.date,
-          asPerBankTotalBal: 0,
-          asPerSwTotalBal: 0,
-          difference: 0,
-          status: "pending",
-          manualEntries: [],
-        };
-      }
-      const amt = Number(entry.amount || 0);
-      if (String(entry.type).toLowerCase() === "debit")
-        grouped[key].asPerBankTotalBal -= Math.abs(amt);
-      else grouped[key].asPerBankTotalBal += Math.abs(amt);
-
-      const flowType =
-        entry.flow_type ||
-        entry.category ||
-        entry.payment_type ||
-        entry.expense_type ||
-        "";
-      grouped[key].manualEntries.push({
-        date: entry.date,
-        entity: entry.entity || "Verto India Pvt Ltd",
-        transactionLabel:
-          flowType === "petty_cash"
-            ? "Petty Cash"
-            : flowType === "salary"
-            ? "Salary Payout"
-            : flowType === "statutory"
-            ? "Statutory Payment"
-            : flowType === "expense"
-            ? "Expense"
-            : flowType === "travel"
-            ? "Travel Expense"
-            : flowType === "food"
-            ? "Food Expense"
-            : flowType === "penalty"
-            ? "Interest / Penalty"
-            : entry.entry_type === "payment_received"
-            ? "Payment Received"
-            : entry.entry_type === "payment_made"
-            ? "Payment Made"
-            : entry.entry_type === "employee_payout"
-            ? "Employee Payout"
-            : entry.entry_type === "statutory_payment" ||
-              entry.entry_type === "statutory_payout"
-            ? "Statutory Payment"
-            : entry.entry_type === "interest_penalty"
-            ? "Interest / Penalty"
-            : entry.entry_type === "bank_transfer"
-            ? "Bank Transfer"
-            : entry.entry_type === "manual_adjustment"
-            ? "Manual Entry"
-            : "Other",
-        amount:
-          entry.type === "debit"
-            ? -Math.abs(entry.amount)
-            : Math.abs(entry.amount),
-        remarks: entry.remarks,
-      });
+  // ✅ STEP 3: Replace entire buildBankRecoData — now sync, per-bank, uses opening_balance
+  const buildBankRecoData = () => {
+    // ── 1. Build opening_balance map from bank_master ──
+    const openingMap = {};
+    banks.forEach((b) => {
+      openingMap[b.id] = Number(b.opening_balance || 0);
     });
 
-    const sortedRows = Object.values(grouped).sort(
-      (a, b) => new Date(a.month) - new Date(b.month)
-    );
-    const runningBank = {},
-      runningSw = {};
+    // ── 2. Compute total bank balance per bank (opening + all movements) ──
+    const bankMovement = {};
+    entries.forEach((e) => {
+      if (!e.bank_id) return;
+      const id = e.bank_id;
+      if (!bankMovement[id]) bankMovement[id] = 0;
+      const amt = Number(e.amount || 0);
+      bankMovement[id] += e.type === "debit" ? -Math.abs(amt) : Math.abs(amt);
+    });
 
-    const finalData = await Promise.all(
-      sortedRows.map(async (row) => {
-        const { bank_id } = row;
-        const prevBank = runningBank[bank_id] || 0;
-        const prevSw = runningSw[bank_id] || 0;
-        const swMove = await calculateSoftwareBalance(bank_id);
+    // ── 3. Compute total SW balance per bank (opening + all movements) ──
+    const swMovement = {};
+    softwareEntries.forEach((e) => {
+      if (!e.bank_id || e.is_deleted) return;
+      const id = e.bank_id;
+      if (!swMovement[id]) swMovement[id] = 0;
+      swMovement[id] += Number(e.amount || 0);
+    });
 
-        row.asPerBankTotalBal = prevBank + row.asPerBankTotalBal;
-        row.asPerSwTotalBal = prevSw + swMove;
-        runningBank[bank_id] = row.asPerBankTotalBal;
-        runningSw[bank_id] = row.asPerSwTotalBal;
-        row.difference = row.asPerBankTotalBal - row.asPerSwTotalBal;
-        row.remainingBalance = Math.abs(row.difference);
-        row.status =
-          Math.abs(row.difference) < 50000 ? "reconciled" : "pending";
-        return row;
-      })
-    );
-    setBankData(finalData.reverse());
+    // ── 4. Build one row per bank ──
+    const rows = banks.map((bank) => {
+      const opening = Number(bank.opening_balance || 0);
+      const bankBal = opening + (bankMovement[bank.id] || 0);
+      const swBal = opening + (swMovement[bank.id] || 0);
+      const diff = bankBal - swBal;
+
+      // Collect all entries for this bank for the detail panel
+      const bankEntries = entries.filter(
+        (e) => String(e.bank_id) === String(bank.id)
+      );
+
+      const manualEntries = bankEntries.map((e) => {
+        const flowType = e.flow_type || "";
+        return {
+          date: e.date,
+          entity: e.entity || "Verto India Pvt Ltd",
+          transactionLabel:
+            flowType === "petty_cash"
+              ? "Petty Cash"
+              : flowType === "salary"
+              ? "Salary Payout"
+              : flowType === "statutory"
+              ? "Statutory Payment"
+              : flowType === "penalty"
+              ? "Interest / Penalty"
+              : flowType === "expense"
+              ? "Expense"
+              : flowType === "travel"
+              ? "Travel Expense"
+              : flowType === "food"
+              ? "Food Expense"
+              : e.entry_type === "payment_received"
+              ? "Payment Received"
+              : e.entry_type === "payment_made"
+              ? "Payment Made"
+              : e.entry_type === "employee_payout"
+              ? "Employee Payout"
+              : e.entry_type === "statutory_payment"
+              ? "Statutory Payment"
+              : e.entry_type === "interest_penalty"
+              ? "Interest / Penalty"
+              : e.entry_type === "bank_transfer"
+              ? "Bank Transfer"
+              : e.entry_type === "manual_adjustment"
+              ? "Manual Entry"
+              : e.entry_type === "advance_payment"
+              ? "Advance Payment"
+              : e.entry_type === "unidentified_credit"
+              ? "Unidentified Credit"
+              : "Other",
+          amount: e.type === "debit" ? -Math.abs(e.amount) : Math.abs(e.amount),
+          remarks: e.remarks,
+        };
+      });
+
+      // Reconciling items: entries in bank with no SW mirror
+      const unreconciledItems = bankEntries.filter(
+        (e) =>
+          e.source_id &&
+          !softwareEntries.some(
+            (s) =>
+              s.source_table === e.source_table &&
+              String(s.source_id) === String(e.source_id) &&
+              !s.is_deleted
+          )
+      );
+
+      return {
+        id: bank.id,
+        bank_id: bank.id,
+        bank_name: bank.bank_name,
+        date: bankEntries[0]?.date || null,
+        month: bankEntries[0]?.date
+          ? new Date(bankEntries[0].date).toISOString().slice(0, 7)
+          : "",
+        asPerBankTotalBal: bankBal,
+        asPerSwTotalBal: swBal,
+        difference: diff,
+        remainingBalance: Math.abs(diff),
+        // ✅ FIXED: reconciled = difference < ₹1 (not ₹50,000)
+        status: Math.abs(diff) < 1 ? "reconciled" : "pending",
+        manualEntries,
+        unreconciledItems,
+      };
+    });
+
+    setBankData(rows);
   };
 
   // ─── EFFECTS ───────────────────────────────────────────────────────────────
@@ -1412,11 +1421,10 @@ const BankReco = () => {
     fetchInterestPenalties();
   }, []);
 
+  // ✅ STEP 4: Fix useEffect — remove async wrapper, add banks as dependency
   useEffect(() => {
-    (async () => {
-      await buildBankRecoData();
-    })();
-  }, [entries, softwareEntries, outstandingInvoices]);
+    if (banks.length > 0) buildBankRecoData();
+  }, [entries, softwareEntries, banks]);
 
   useEffect(() => {
     const ch = supabase
@@ -1514,9 +1522,9 @@ const BankReco = () => {
   // ─── FILTERED DATA ─────────────────────────────────────────────────────────
   const filteredData = bankData
     .filter((row) => {
-      const matchSearch = row.month
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase());
+      const matchSearch =
+        (row.month || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (row.bank_name || "").toLowerCase().includes(searchTerm.toLowerCase());
       const matchMonth = monthFilter === "All" || row.month === monthFilter;
       return matchSearch && matchMonth;
     })
@@ -1528,7 +1536,7 @@ const BankReco = () => {
       return 0;
     });
 
-  // ─── ADD ENTRY ─────────────────────────────────────────────────────────────
+  // ✅ STEP 5: Fix stale selectedRow update — just clear it instead of setTimeout
   const handleAddEntry = async () => {
     if (!newEntry.bank_id || !newEntry.amount || !newEntry.dateOfBankBal) {
       alert("Fill all required fields");
@@ -1605,15 +1613,11 @@ const BankReco = () => {
     await fetchEntries();
     await fetchSoftwareEntries();
     await fetchFundFlowProjection();
-    setTimeout(() => {
-      const updated = bankData.find((r) => r.id === selectedRow?.id);
-      if (updated) {
-        setSelectedRow(updated);
-        setRemainingBalance(
-          (updated.asPerBankTotalBal || 0) - (updated.asPerSwTotalBal || 0)
-        );
-      }
-    }, 300);
+
+    // selectedRow will auto-update via bankData state change after fetchEntries completes
+    // Just clear it so the user sees fresh data when they re-select
+    setSelectedRow(null);
+
     window.refreshDashboard?.();
   };
 
@@ -1679,7 +1683,7 @@ const BankReco = () => {
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Search month…"
+                    placeholder="Search month or bank…"
                     className="w-48 bg-gray-50 border border-gray-200 text-gray-900 pl-10 pr-4 py-2 rounded-lg text-sm focus:outline-none focus:border-blue-500"
                   />
                 </div>
@@ -1753,9 +1757,8 @@ const BankReco = () => {
                 <table className="w-full text-left border-collapse">
                   <thead className="bg-gray-50 sticky top-0 z-10">
                     <tr className="text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200">
-                      <th className="p-4 w-24">Month</th>
+                      <th className="p-4 w-24">Bank</th>
                       <th className="p-4 w-28">Date</th>
-                      <th className="p-4 w-32">Bank</th>
                       <th className="p-4 text-right w-36 text-blue-700">
                         As Per Bank
                       </th>
@@ -1790,15 +1793,12 @@ const BankReco = () => {
                           style={{ height: 56 }}
                         >
                           <td className="p-4 font-medium text-gray-900">
-                            {row.month}
+                            {row.bank_name}
                           </td>
                           <td className="p-4 text-gray-600">
                             {row.date
                               ? new Date(row.date).toLocaleDateString("en-GB")
                               : "-"}
-                          </td>
-                          <td className="p-4 font-medium text-gray-700">
-                            {row.bank_name}
                           </td>
                           <td className="p-4 text-right font-mono text-blue-700">
                             {formatCurrency(row.asPerBankTotalBal)}
@@ -1809,7 +1809,7 @@ const BankReco = () => {
                           <td className="p-4 text-right">
                             <span
                               className={`font-mono font-bold ${
-                                Math.abs(row.difference) < 50000
+                                Math.abs(row.difference) < 1
                                   ? "text-emerald-600"
                                   : "text-rose-600"
                               }`}
@@ -1848,7 +1848,7 @@ const BankReco = () => {
                               exit={{ opacity: 0 }}
                               transition={{ duration: 0.2 }}
                             >
-                              <td colSpan="8" className="bg-blue-50 p-4">
+                              <td colSpan="7" className="bg-blue-50 p-4">
                                 <div className="grid grid-cols-3 gap-4 mb-4">
                                   {[
                                     {
@@ -1865,7 +1865,7 @@ const BankReco = () => {
                                       label: "Difference",
                                       value: Math.abs(row.difference),
                                       cls:
-                                        Math.abs(row.difference) < 50000
+                                        Math.abs(row.difference) < 1
                                           ? "text-emerald-600"
                                           : "text-rose-600",
                                     },
@@ -1950,6 +1950,43 @@ const BankReco = () => {
                                         ))}
                                       </tbody>
                                     </table>
+                                  </div>
+                                )}
+
+                                {/* ✅ STEP 7: Add unreconciled items breakdown */}
+                                {row.unreconciledItems?.length > 0 && (
+                                  <div className="mt-3 bg-rose-50 border border-rose-200 rounded-lg p-3">
+                                    <p className="text-xs font-bold text-rose-700 uppercase tracking-wider mb-2">
+                                      ⚠️ {row.unreconciledItems.length}{" "}
+                                      Unmirrored Bank Entries (causing gap)
+                                    </p>
+                                    <div className="space-y-1">
+                                      {row.unreconciledItems.map((e) => (
+                                        <div
+                                          key={e.id}
+                                          className="flex justify-between text-xs bg-white rounded px-2 py-1 border border-rose-100"
+                                        >
+                                          <span className="text-gray-600">
+                                            {e.entry_type} ·{" "}
+                                            {new Date(
+                                              e.date
+                                            ).toLocaleDateString("en-GB")}
+                                          </span>
+                                          <span
+                                            className={`font-mono font-bold ${
+                                              e.type === "debit"
+                                                ? "text-rose-600"
+                                                : "text-emerald-600"
+                                            }`}
+                                          >
+                                            {e.type === "debit" ? "-" : "+"}₹
+                                            {Number(e.amount).toLocaleString(
+                                              "en-IN"
+                                            )}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
                                   </div>
                                 )}
 
@@ -2076,7 +2113,7 @@ const BankReco = () => {
                             Bank Reconciliation
                           </h3>
                           <p className="text-blue-100 text-sm">
-                            {selectedRow.month} •{" "}
+                            {selectedRow.bank_name} •{" "}
                             {selectedRow.date
                               ? new Date(selectedRow.date).toLocaleDateString(
                                   "en-GB"
@@ -2120,7 +2157,7 @@ const BankReco = () => {
                       </div>
                       <div
                         className={`p-4 rounded-xl border ${
-                          Math.abs(selectedRow.difference) < 50000
+                          Math.abs(selectedRow.difference) < 1
                             ? "bg-emerald-50 border-emerald-200"
                             : "bg-rose-50 border-rose-200"
                         }`}
@@ -2128,7 +2165,7 @@ const BankReco = () => {
                         <div className="flex justify-between items-center">
                           <span
                             className={`text-sm font-bold ${
-                              Math.abs(selectedRow.difference) < 50000
+                              Math.abs(selectedRow.difference) < 1
                                 ? "text-emerald-800"
                                 : "text-rose-800"
                             }`}
@@ -2137,7 +2174,7 @@ const BankReco = () => {
                           </span>
                           <span
                             className={`text-2xl font-bold font-mono ${
-                              Math.abs(selectedRow.difference) < 50000
+                              Math.abs(selectedRow.difference) < 1
                                 ? "text-emerald-700"
                                 : "text-rose-700"
                             }`}
