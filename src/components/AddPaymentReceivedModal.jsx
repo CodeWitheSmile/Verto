@@ -41,18 +41,27 @@ const AddPaymentReceivedModal = ({
   const [invoiceDetails, setInvoiceDetails] = useState(null);
   const [showErrors, setShowErrors] = useState(false);
   const [banks, setBanks] = useState([]);
+  const [clientOptions, setClientOptions] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [showClientDropdown, setShowClientDropdown] = useState(false);
 
   /* ── View modal state ── */
   const [viewOpen, setViewOpen] = useState(false);
 
-  // ── Fetch banks ──────────────────────────────────────────────
+  // ── Fetch banks AND clients ──────────────────────────────────
   useEffect(() => {
     const fetchBanks = async () => {
       const { data } = await supabase
         .from("bank_master")
         .select("id, bank_name");
       setBanks(data || []);
+
+      // Fetch clients from Supabase
+      const { data: clientData } = await supabase
+        .from("clients_master")
+        .select("id, client_name")
+        .order("client_name");
+      setClientOptions(clientData || []);
     };
     fetchBanks();
   }, []);
@@ -353,6 +362,7 @@ const AddPaymentReceivedModal = ({
     setErrors({});
     setShowErrors(false);
     setInvoiceDetails(null);
+    setShowClientDropdown(false);
   };
 
   const handleClose = () => {
@@ -687,30 +697,52 @@ const AddPaymentReceivedModal = ({
                             <ErrorMessage error={errors.department} />
                           </div>
 
-                          {/* Client */}
+                          {/* Client — UPDATED: fetches from Supabase, shows all on focus, filters on type */}
                           <div>
                             <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
                               Client <span className="text-rose-600">*</span>
                             </label>
-                            <input
-                              type="text"
-                              list="clients-list"
-                              value={formData.client}
-                              onChange={(e) =>
-                                handleChange("client", e.target.value)
-                              }
-                              className={`w-full bg-white border text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-emerald-500 ${
-                                showErrors && errors.client
-                                  ? "border-rose-500"
-                                  : "border-gray-300"
-                              }`}
-                              placeholder="Type or select client"
-                            />
-                            <datalist id="clients-list">
-                              {clients.map((c, i) => (
-                                <option key={`${c || "client"}-${i}`} value={c} />
-                              ))}
-                            </datalist>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={formData.client}
+                                onChange={(e) => {
+                                  handleChange("client", e.target.value);
+                                  setShowClientDropdown(true);
+                                }}
+                                onFocus={() => setShowClientDropdown(true)}
+                                onBlur={() => setTimeout(() => setShowClientDropdown(false), 200)}
+                                className={`w-full bg-white border text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 ${
+                                  showErrors && errors.client
+                                    ? "border-rose-500"
+                                    : "border-gray-300"
+                                }`}
+                                placeholder="Type or select client"
+                              />
+                              {showClientDropdown && (
+                                <div className="absolute z-20 top-full left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg mt-1 max-h-48 overflow-y-auto">
+                                  {clientOptions
+                                    .filter((c) =>
+                                      formData.client.length === 0
+                                        ? true
+                                        : c.client_name.toLowerCase().includes(formData.client.toLowerCase())
+                                    )
+                                    .map((c) => (
+                                      <button
+                                        key={c.id}
+                                        type="button"
+                                        onClick={() => {
+                                          handleChange("client", c.client_name);
+                                          setShowClientDropdown(false);
+                                        }}
+                                        className="w-full text-left px-4 py-2.5 hover:bg-emerald-50 text-sm border-b border-gray-100 last:border-0 text-gray-900"
+                                      >
+                                        {c.client_name}
+                                      </button>
+                                    ))}
+                                </div>
+                              )}
+                            </div>
                             <ErrorMessage error={errors.client} />
                           </div>
 
