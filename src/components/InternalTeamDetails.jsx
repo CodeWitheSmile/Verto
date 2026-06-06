@@ -25,17 +25,21 @@ import Button from "./ui/button";
 import Badge from "./ui/Badge";
 import AddInternalTeamModal from "./AddInternalTeamModal";
 
+// ── 4 keys only — must match DB jsonb and AddInternalTeamModal exactly ──────
 const COST_HEAD_KEYS = [
-  { key: "os", label: "OS", desc: "Outsourcing" },
+  { key: "ops", label: "Ops", desc: "Operations" },
   { key: "temp", label: "Temp", desc: "Temporary" },
   { key: "rec", label: "Rec", desc: "Recruitment" },
   { key: "projects", label: "Projects", desc: "Project-Based" },
-  { key: "bd", label: "BD", desc: "Business Dev" },
-  { key: "accts", label: "Accts", desc: "Accounts" },
-  { key: "admin", label: "Admin", desc: "Administration" },
-  { key: "hr", label: "HR", desc: "Human Resources" },
-  { key: "others", label: "Others", desc: "Others" },
 ];
+
+// Normalise any legacy 9-key breakup to 4 keys
+const normCostHead = (raw) => ({
+  ops: Number(raw?.ops || raw?.OS || 0),
+  temp: Number(raw?.temp || 0),
+  rec: Number(raw?.rec || 0),
+  projects: Number(raw?.projects || 0),
+});
 
 const MONTH_NAMES = [
   "Jan",
@@ -57,13 +61,105 @@ const SEGMENT_COLORS = [
   "bg-indigo-500",
   "bg-violet-500",
   "bg-purple-500",
-  "bg-pink-500",
-  "bg-rose-500",
-  "bg-orange-500",
-  "bg-amber-500",
-  "bg-teal-500",
 ];
 
+/* ─────────────────────────────────────────────
+   Excel Export
+───────────────────────────────────────────── */
+const exportToExcel = (mergedData, formatDate) => {
+  const maxClients = mergedData.reduce(
+    (max, row) => Math.max(max, row.client_focus?.length || 0),
+    0
+  );
+  const getGrossValue = (row) => {
+    if (row.gross_value && Number(row.gross_value) > 0)
+      return Number(row.gross_value);
+    return (
+      (Number(row.ctc) || 0) +
+      (Number(row.pf) || 0) +
+      (Number(row.esi) || 0) +
+      (Number(row.bonus) || 0) +
+      (Number(row.other_component) || 0) +
+      (Number(row.reimbursement) || 0)
+    );
+  };
+
+  const exportRows = mergedData.map((row) => {
+    const norm = normCostHead(row.cost_head_breakup);
+    const base = {
+      "Emp Code": row.emp_code || "",
+      Name: row.name || "",
+      "Father Name": row.father_name || "",
+      Email: row.email || "",
+      Department: row.department || "",
+      Designation: row.designation || "",
+      Location: row.location || "",
+      Role: row.role || "employee",
+      Status: row.status || "",
+      "Date of Birth": row.dob ? formatDate(row.dob) : "",
+      "Date of Joining": row.doj ? formatDate(row.doj) : "",
+      "Fixed Salary / CTC (₹)": row.ctc || 0,
+      "PF (₹)": row.pf || 0,
+      "ESI (₹)": row.esi || 0,
+      "Bonus (₹)": row.bonus || 0,
+      "Variable (₹)": row.variable || 0,
+      "Other Component (₹)": row.other_component || 0,
+      "Reimbursement (₹)": row.reimbursement || 0,
+      "Gross Value (₹)": getGrossValue(row),
+      "Cost Head - Ops (%)": norm.ops,
+      "Cost Head - Temp (%)": norm.temp,
+      "Cost Head - Rec (%)": norm.rec,
+      "Cost Head - Projects (%)": norm.projects,
+    };
+    for (let i = 0; i < maxClients; i++) {
+      const client = row.client_focus?.[i];
+      base[`Client ${i + 1} Name`] = client?.clientName || "";
+      base[`Client ${i + 1} %`] = client?.percentage ?? "";
+    }
+    return base;
+  });
+
+  const worksheet = XLSX.utils.json_to_sheet(exportRows);
+  const headers = Object.keys(exportRows[0] || {});
+  worksheet["!cols"] = headers.map((h) => ({
+    wch: Math.max(h.length + 2, 14),
+  }));
+  worksheet["!freeze"] = { xSplit: 0, ySplit: 1 };
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Internal Team");
+  XLSX.writeFile(
+    workbook,
+    `Internal_Team_${new Date().toISOString().slice(0, 10)}.xlsx`
+  );
+};
+
+/* ─────────────────────────────────────────────
+   Cost Bar — 4-key version
+───────────────────────────────────────────── */
+const CostBar = ({ breakup }) => {
+  const norm = normCostHead(breakup);
+  const total = COST_HEAD_KEYS.reduce((s, h) => s + (norm[h.key] || 0), 0);
+  if (!total) return null;
+  return (
+    <div className="mt-2 h-1.5 rounded-full overflow-hidden bg-gray-100 flex">
+      {COST_HEAD_KEYS.map(({ key }, i) => {
+        const v = norm[key] || 0;
+        if (!v) return null;
+        return (
+          <div
+            key={key}
+            style={{ width: `${v}%` }}
+            className={`h-full transition-all ${SEGMENT_COLORS[i % 4]}`}
+          />
+        );
+      })}
+    </div>
+  );
+};
+
+/* ─────────────────────────────────────────────
+   Main Component
+───────────────────────────────────────────── */
 const InternalTeamDetails = () => {
   const { role } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
@@ -85,7 +181,7 @@ const InternalTeamDetails = () => {
   const isAnyModalOpen = !!selectedEmployee || isModalOpen;
 
   useEffect(() => {
-    const loadTeamRoles = async () => {
+    const load = async () => {
       setRoleLoading(true);
       const { data: rolesData, error } = await supabase
         .from("user_roles")
@@ -93,7 +189,7 @@ const InternalTeamDetails = () => {
       if (!error) setTeamRoles(rolesData ?? []);
       setRoleLoading(false);
     };
-    loadTeamRoles();
+    load();
   }, []);
 
   useEffect(() => {
@@ -141,15 +237,16 @@ const InternalTeamDetails = () => {
   }, [data, teamRoles]);
 
   let filteredData = mergedData.filter((row) => {
-    const matchesSearch =
-      row.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      row.emp_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      row.designation?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      row.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      row.role?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesDept = deptFilter === "All" || row.department === deptFilter;
-    const matchesStatus = statusFilter === "All" || row.status === statusFilter;
-    return matchesSearch && matchesDept && matchesStatus;
+    const q = searchTerm.toLowerCase();
+    const matchSearch =
+      row.name?.toLowerCase().includes(q) ||
+      row.emp_code?.toLowerCase().includes(q) ||
+      row.designation?.toLowerCase().includes(q) ||
+      row.email?.toLowerCase().includes(q) ||
+      row.role?.toLowerCase().includes(q);
+    const matchDept = deptFilter === "All" || row.department === deptFilter;
+    const matchStatus = statusFilter === "All" || row.status === statusFilter;
+    return matchSearch && matchDept && matchStatus;
   });
 
   if (sortConfig.key) {
@@ -176,12 +273,11 @@ const InternalTeamDetails = () => {
     setCurrentPage(1);
   }, [searchTerm, deptFilter, statusFilter]);
 
-  const handleSort = (key) => {
+  const handleSort = (key) =>
     setSortConfig((prev) => ({
       key,
       direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc",
     }));
-  };
 
   const SortIcon = ({ columnKey }) => {
     if (sortConfig.key !== columnKey)
@@ -195,17 +291,15 @@ const InternalTeamDetails = () => {
 
   const formatCurrency = (val) => `₹ ${((val || 0) / 1000).toFixed(0)}K`;
   const formatCurrencyFull = (val) => `₹ ${(val || 0).toLocaleString("en-IN")}`;
-  const formatDate = (dateStr) => {
-    if (!dateStr) return "—";
-    return new Date(dateStr).toLocaleDateString("en-GB", {
+  const formatDate = (d) => {
+    if (!d) return "—";
+    return new Date(d).toLocaleDateString("en-GB", {
       day: "2-digit",
       month: "short",
       year: "numeric",
     });
   };
 
-  // Helper: compute gross_value client-side if DB column is missing/zero
-  // gross_value = ctc + pf + esi + bonus + other_component + reimbursement
   const getGrossValue = (row) => {
     if (row.gross_value && Number(row.gross_value) > 0)
       return Number(row.gross_value);
@@ -225,88 +319,6 @@ const InternalTeamDetails = () => {
     setSelectedEmployee(null);
   };
 
-  const handleExportExcel = () => {
-    const maxClients = mergedData.reduce(
-      (max, row) => Math.max(max, row.client_focus?.length || 0),
-      0
-    );
-    const exportRows = mergedData.map((row) => {
-      const base = {
-        "Emp Code": row.emp_code || "",
-        Name: row.name || "",
-        "Father Name": row.father_name || "",
-        Email: row.email || "",
-        Department: row.department || "",
-        Designation: row.designation || "",
-        Location: row.location || "",
-        Role: row.role || "employee",
-        Status: row.status || "",
-        "Date of Birth": row.dob ? formatDate(row.dob) : "",
-        "Date of Joining": row.doj ? formatDate(row.doj) : "",
-        "Fixed Salary / CTC (₹)": row.ctc || 0,
-        "PF (₹)": row.pf || 0,
-        "ESI (₹)": row.esi || 0,
-        "Bonus (₹)": row.bonus || 0,
-        "Variable (₹)": row.variable || 0,
-        "Other Component (₹)": row.other_component || 0,
-        "Reimbursement (₹)": row.reimbursement || 0,
-        // ← Gross Value = sum of all components (KEY COLUMN)
-        "Gross Value (₹)": getGrossValue(row),
-        "Cost Head - OS (%)": row.cost_head_breakup?.os || 0,
-        "Cost Head - REC (%)": row.cost_head_breakup?.rec || 0,
-        "Cost Head - TEMP (%)": row.cost_head_breakup?.temp || 0,
-        "Cost Head - Projects (%)": row.cost_head_breakup?.projects || 0,
-        "Cost Head - BD (%)": row.cost_head_breakup?.bd || 0,
-        "Cost Head - HR (%)": row.cost_head_breakup?.hr || 0,
-        "Cost Head - Accts (%)": row.cost_head_breakup?.accts || 0,
-        "Cost Head - Admin (%)": row.cost_head_breakup?.admin || 0,
-        "Cost Head - Others (%)": row.cost_head_breakup?.others || 0,
-      };
-      for (let i = 0; i < maxClients; i++) {
-        const client = row.client_focus?.[i];
-        base[`Client ${i + 1} Name`] = client?.clientName || "";
-        base[`Client ${i + 1} %`] = client?.percentage ?? "";
-      }
-      return base;
-    });
-
-    const worksheet = XLSX.utils.json_to_sheet(exportRows);
-    const headers = Object.keys(exportRows[0] || {});
-    worksheet["!cols"] = headers.map((h) => ({
-      wch: Math.max(h.length + 2, 14),
-    }));
-    worksheet["!freeze"] = { xSplit: 0, ySplit: 1 };
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Internal Team");
-    XLSX.writeFile(
-      workbook,
-      `Internal_Team_${new Date().toISOString().slice(0, 10)}.xlsx`
-    );
-  };
-
-  const CostBar = ({ breakup }) => {
-    const total = COST_HEAD_KEYS.reduce(
-      (s, h) => s + (breakup?.[h.key] || 0),
-      0
-    );
-    if (!total) return null;
-    return (
-      <div className="mt-2 h-1.5 rounded-full overflow-hidden bg-gray-100 flex">
-        {COST_HEAD_KEYS.map(({ key }, i) => {
-          const v = breakup?.[key] || 0;
-          if (!v) return null;
-          return (
-            <div
-              key={key}
-              style={{ width: `${v}%` }}
-              className={`h-full transition-all ${SEGMENT_COLORS[i % 9]}`}
-            />
-          );
-        })}
-      </div>
-    );
-  };
-
   return (
     <div className="space-y-4 pb-6">
       {/* Filter Bar */}
@@ -314,7 +326,7 @@ const InternalTeamDetails = () => {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center space-x-4">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
               <input
                 type="text"
                 value={searchTerm}
@@ -339,6 +351,8 @@ const InternalTeamDetails = () => {
                 "Admin",
                 "IT",
                 "Projects",
+                "Common",
+                "Others",
               ].map((d) => (
                 <option key={d}>{d}</option>
               ))}
@@ -354,12 +368,8 @@ const InternalTeamDetails = () => {
             </select>
           </div>
           <div className="flex items-center space-x-3">
-            <Button variant="outline" className="flex items-center space-x-2">
-              <Filter className="w-4 h-4" />
-              <span>More Filters</span>
-            </Button>
             <Button
-              onClick={handleExportExcel}
+              onClick={() => exportToExcel(mergedData, formatDate)}
               className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700"
             >
               <Download className="w-4 h-4" />
@@ -385,51 +395,27 @@ const InternalTeamDetails = () => {
           <table className="w-full text-left border-collapse">
             <thead className="bg-gray-50 sticky top-0 z-10">
               <tr className="text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200">
+                {[
+                  { key: "department", label: "Department" },
+                  { key: "name", label: "Name" },
+                  { key: "designation", label: "Designation" },
+                  { key: "location", label: "Location" },
+                ].map(({ key, label }) => (
+                  <th
+                    key={key}
+                    className="p-3 cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort(key)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span>{label}</span>
+                      <SortIcon columnKey={key} />
+                    </div>
+                  </th>
+                ))}
+                <th className="p-3">Email</th>
+                <th className="p-3 text-center">Role</th>
                 <th
-                  className="p-3 cursor-pointer hover:bg-gray-100 transition-colors"
-                  onClick={() => handleSort("department")}
-                >
-                  <div className="flex items-center justify-between">
-                    <span>Department</span>
-                    <SortIcon columnKey="department" />
-                  </div>
-                </th>
-                <th
-                  className="p-3 cursor-pointer hover:bg-gray-100 transition-colors"
-                  onClick={() => handleSort("name")}
-                >
-                  <div className="flex items-center justify-between">
-                    <span>Name</span>
-                    <SortIcon columnKey="name" />
-                  </div>
-                </th>
-                <th
-                  className="p-3 cursor-pointer hover:bg-gray-100 transition-colors"
-                  onClick={() => handleSort("designation")}
-                >
-                  <div className="flex items-center justify-between">
-                    <span>Designation</span>
-                    <SortIcon columnKey="designation" />
-                  </div>
-                </th>
-                <th
-                  className="p-3 cursor-pointer hover:bg-gray-100 transition-colors"
-                  onClick={() => handleSort("location")}
-                >
-                  <div className="flex items-center justify-between">
-                    <span>Location</span>
-                    <SortIcon columnKey="location" />
-                  </div>
-                </th>
-                <th className="p-3">
-                  <span>Email</span>
-                </th>
-                <th className="p-3 text-center">
-                  <span>Role</span>
-                </th>
-                {/* ← CHANGED: was "CTC", now "Gross Value" — shows total monthly cost */}
-                <th
-                  className="p-3 text-right cursor-pointer hover:bg-gray-100 transition-colors"
+                  className="p-3 text-right cursor-pointer hover:bg-gray-100"
                   onClick={() => handleSort("gross_value")}
                 >
                   <div className="flex items-center justify-end space-x-2">
@@ -445,75 +431,94 @@ const InternalTeamDetails = () => {
               className={`text-sm divide-y divide-gray-100 transition-all duration-300 ${
                 isAnyModalOpen
                   ? "opacity-20 blur-sm pointer-events-none select-none"
-                  : "opacity-100 blur-none"
+                  : ""
               }`}
             >
-              {paginatedData.map((row, index) => (
-                <motion.tr
-                  key={row.id}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: index * 0.02 }}
-                  className="hover:bg-blue-50 transition-colors"
-                >
-                  <td className="p-3">
-                    <Badge
-                      variant="secondary"
-                      className="text-xs font-semibold text-gray-900"
-                    >
-                      {row.department}
-                    </Badge>
-                  </td>
-                  <td className="p-3 font-semibold text-gray-900">
-                    {row.name}
-                  </td>
-                  <td className="p-3 font-medium text-gray-900">
-                    {row.designation}
-                  </td>
-                  <td className="p-3 font-medium text-gray-900">
-                    {row.location}
-                  </td>
-                  <td className="p-3 font-medium text-gray-900 break-all">
-                    {row.email}
-                  </td>
-                  <td className="p-3 text-center text-sm font-semibold text-gray-900">
-                    {row.role || "employee"}
-                  </td>
-                  {/* ← Shows gross_value (DB column), falls back to computed sum */}
-                  <td className="p-3 text-right font-mono font-bold text-gray-900">
-                    {formatCurrency(getGrossValue(row))}
-                  </td>
-                  <td className="p-3 text-center">
+              {loading ? (
+                <tr>
+                  <td colSpan={8} className="py-16 text-center text-gray-400">
                     <div className="flex items-center justify-center gap-2">
-                      <button
-                        onClick={() => setSelectedEmployee(row)}
-                        className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold rounded text-xs border border-blue-200 transition-colors"
-                      >
-                        View
-                      </button>
-                      <button
-                        onClick={() => handleEdit(row)}
-                        className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 font-semibold rounded text-xs border border-amber-200 transition-colors"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={async () => {
-                          if (!window.confirm(`Delete ${row.name}?`)) return;
-                          const { error } = await supabase
-                            .from("internal_team")
-                            .delete()
-                            .eq("id", row.id);
-                          if (!error) fetchEmployees();
-                        }}
-                        className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-700 font-semibold rounded text-xs border border-red-200 transition-colors"
-                      >
-                        Delete
-                      </button>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span>Loading…</span>
                     </div>
                   </td>
-                </motion.tr>
-              ))}
+                </tr>
+              ) : paginatedData.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={8}
+                    className="py-16 text-center text-gray-400 text-sm"
+                  >
+                    No team members found
+                  </td>
+                </tr>
+              ) : (
+                paginatedData.map((row, index) => (
+                  <motion.tr
+                    key={row.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: index * 0.02 }}
+                    className="hover:bg-blue-50 transition-colors"
+                  >
+                    <td className="p-3">
+                      <Badge
+                        variant="secondary"
+                        className="text-xs font-semibold text-gray-900"
+                      >
+                        {row.department}
+                      </Badge>
+                    </td>
+                    <td className="p-3 font-semibold text-gray-900">
+                      {row.name}
+                    </td>
+                    <td className="p-3 font-medium text-gray-900">
+                      {row.designation}
+                    </td>
+                    <td className="p-3 font-medium text-gray-900">
+                      {row.location || "—"}
+                    </td>
+                    <td className="p-3 font-medium text-gray-900 break-all">
+                      {row.email || "—"}
+                    </td>
+                    <td className="p-3 text-center text-sm font-semibold text-gray-900">
+                      {row.role || "employee"}
+                    </td>
+                    <td className="p-3 text-right font-mono font-bold text-gray-900">
+                      {formatCurrency(getGrossValue(row))}
+                    </td>
+                    <td className="p-3 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => setSelectedEmployee(row)}
+                          className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold rounded text-xs border border-blue-200"
+                        >
+                          View
+                        </button>
+                        <button
+                          onClick={() => handleEdit(row)}
+                          className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 font-semibold rounded text-xs border border-amber-200"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!window.confirm(`Delete ${row.name}?`)) return;
+                            const { error } = await supabase
+                              .from("internal_team")
+                              .delete()
+                              .eq("id", row.id);
+                            if (!error) fetchEmployees();
+                          }}
+                          className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-700 font-semibold rounded text-xs border border-red-200"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </motion.tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -523,7 +528,7 @@ const InternalTeamDetails = () => {
           className={`p-4 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between transition-all duration-300 ${
             isAnyModalOpen
               ? "opacity-20 blur-sm pointer-events-none select-none"
-              : "opacity-100 blur-none"
+              : ""
           }`}
         >
           <div className="text-sm text-gray-800 font-medium">
@@ -545,7 +550,7 @@ const InternalTeamDetails = () => {
             <button
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={currentPage === 1}
-              className="p-2 rounded-lg border border-gray-200 bg-white text-gray-800 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="p-2 rounded-lg border border-gray-200 bg-white text-gray-800 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -575,7 +580,7 @@ const InternalTeamDetails = () => {
             <button
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
               disabled={currentPage === totalPages || totalPages === 0}
-              className="p-2 rounded-lg border border-gray-200 bg-white text-gray-800 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="p-2 rounded-lg border border-gray-200 bg-white text-gray-800 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -603,7 +608,7 @@ const InternalTeamDetails = () => {
                 className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto pointer-events-auto"
                 onClick={(e) => e.stopPropagation()}
               >
-                {/* Modal Header */}
+                {/* Header */}
                 <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-blue-600 to-indigo-700 text-white flex justify-between items-center sticky top-0 z-10 rounded-t-xl">
                   <div>
                     <h3 className="text-lg font-bold flex items-center">
@@ -624,7 +629,7 @@ const InternalTeamDetails = () => {
                     </button>
                     <button
                       onClick={() => setSelectedEmployee(null)}
-                      className="text-white/80 hover:text-white transition-colors p-2"
+                      className="text-white/80 hover:text-white p-2"
                     >
                       <X className="w-6 h-6" />
                     </button>
@@ -632,7 +637,7 @@ const InternalTeamDetails = () => {
                 </div>
 
                 <div className="p-6 space-y-6">
-                  {/* Basic Information */}
+                  {/* Basic Info */}
                   <ViewSection
                     icon={<Briefcase className="w-4 h-4" />}
                     title="Basic Information"
@@ -651,15 +656,7 @@ const InternalTeamDetails = () => {
                           ),
                         },
                         {
-                          label: "Email",
-                          value: (
-                            <span className="text-blue-700 font-mono font-semibold">
-                              {selectedEmployee.email || "—"}
-                            </span>
-                          ),
-                        },
-                        {
-                          label: "Employee Code",
+                          label: "Emp Code",
                           value: (
                             <span className="text-blue-700 font-mono font-semibold">
                               {selectedEmployee.emp_code}
@@ -720,6 +717,14 @@ const InternalTeamDetails = () => {
                             </span>
                           ),
                         },
+                        {
+                          label: "Email",
+                          value: (
+                            <span className="text-blue-700 font-mono font-semibold">
+                              {selectedEmployee.email || "—"}
+                            </span>
+                          ),
+                        },
                       ].map(({ label, value }) => (
                         <div key={label}>
                           <label className="text-xs text-gray-500 uppercase tracking-wider font-medium">
@@ -731,7 +736,7 @@ const InternalTeamDetails = () => {
                     </div>
                   </ViewSection>
 
-                  {/* Employment Details */}
+                  {/* Employment */}
                   <ViewSection
                     icon={<Calendar className="w-4 h-4" />}
                     title="Employment Details"
@@ -763,12 +768,11 @@ const InternalTeamDetails = () => {
                     </div>
                   </ViewSection>
 
-                  {/* ── Compensation Details — GROSS VALUE is the hero number ── */}
+                  {/* Compensation */}
                   <ViewSection
                     icon={<DollarSign className="w-4 h-4" />}
                     title="Compensation Details (Monthly)"
                   >
-                    {/* Gross Value hero card */}
                     <div className="bg-blue-600 text-white rounded-xl p-4 mb-4 flex items-center justify-between">
                       <div>
                         <p className="text-blue-200 text-xs font-semibold uppercase tracking-wider">
@@ -791,8 +795,6 @@ const InternalTeamDetails = () => {
                         </p>
                       </div>
                     </div>
-
-                    {/* Component breakdown */}
                     <div className="grid grid-cols-3 gap-3">
                       {[
                         {
@@ -835,16 +837,18 @@ const InternalTeamDetails = () => {
                     </div>
                   </ViewSection>
 
-                  {/* Current Cost Head Breakup */}
+                  {/* Cost Head Breakup — 4 keys */}
                   <ViewSection title="Current Cost Head Break Up">
                     <p className="text-xs text-gray-500 -mt-2 mb-3">
                       Default allocation effective from DOJ (
                       {formatDate(selectedEmployee.doj)})
                     </p>
-                    <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                       {COST_HEAD_KEYS.map(({ key, label, desc }) => {
-                        const val =
-                          selectedEmployee.cost_head_breakup?.[key] || 0;
+                        const norm = normCostHead(
+                          selectedEmployee.cost_head_breakup
+                        );
+                        const val = norm[key] || 0;
                         return (
                           <div
                             key={key}
@@ -872,7 +876,7 @@ const InternalTeamDetails = () => {
                     <CostBar breakup={selectedEmployee.cost_head_breakup} />
                   </ViewSection>
 
-                  {/* Cost Head Shift History */}
+                  {/* Cost Shift History */}
                   <ViewSection
                     icon={<History className="w-4 h-4" />}
                     title="Cost Head Shift History"
@@ -888,25 +892,24 @@ const InternalTeamDetails = () => {
                     {historyLoading ? (
                       <div className="flex items-center space-x-2 text-sm text-gray-500 py-3">
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Loading history…</span>
+                        <span>Loading…</span>
                       </div>
                     ) : costHistory.length === 0 ? (
                       <p className="text-sm text-gray-400 italic py-2">
-                        No cost shift history recorded. Use Edit to add cost
-                        shifts.
+                        No cost shift history. Use Edit to add shifts.
                       </p>
                     ) : (
                       <div className="overflow-x-auto rounded-lg border border-gray-200">
                         <table className="w-full text-xs border-collapse">
                           <thead>
                             <tr className="bg-gray-100 text-gray-600 font-semibold uppercase tracking-wider">
-                              <th className="px-3 py-2.5 text-left border-b border-gray-200 whitespace-nowrap sticky left-0 bg-gray-100 z-10">
+                              <th className="px-3 py-2.5 text-left border-b border-gray-200 sticky left-0 bg-gray-100 z-10">
                                 Period
                               </th>
                               {COST_HEAD_KEYS.map((h) => (
                                 <th
                                   key={h.key}
-                                  className="px-3 py-2.5 text-center border-b border-gray-200 whitespace-nowrap"
+                                  className="px-3 py-2.5 text-center border-b border-gray-200"
                                 >
                                   <div>{h.label}</div>
                                   <div className="text-[9px] font-normal text-gray-400 normal-case">
@@ -914,43 +917,40 @@ const InternalTeamDetails = () => {
                                   </div>
                                 </th>
                               ))}
-                              <th className="px-3 py-2.5 text-center border-b border-gray-200 whitespace-nowrap">
+                              <th className="px-3 py-2.5 text-center border-b border-gray-200">
                                 Total
                               </th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-100">
                             {costHistory.map((row, idx) => {
+                              const norm = normCostHead(row.cost_head_breakup);
                               const total = COST_HEAD_KEYS.reduce(
-                                (s, h) =>
-                                  s + (row.cost_head_breakup?.[h.key] || 0),
+                                (s, h) => s + (norm[h.key] || 0),
                                 0
                               );
-                              const monthName =
-                                MONTH_NAMES[row.effective_month - 1];
-                              const isEven = idx % 2 === 0;
                               return (
                                 <tr
                                   key={row.id}
                                   className={
-                                    isEven ? "bg-white" : "bg-gray-50/60"
+                                    idx % 2 === 0 ? "bg-white" : "bg-gray-50/60"
                                   }
                                 >
                                   <td
-                                    className={`px-3 py-2.5 font-semibold text-gray-900 whitespace-nowrap sticky left-0 z-10 ${
-                                      isEven ? "bg-white" : "bg-gray-50"
+                                    className={`px-3 py-2.5 font-semibold text-gray-900 sticky left-0 z-10 ${
+                                      idx % 2 === 0 ? "bg-white" : "bg-gray-50"
                                     }`}
                                   >
                                     <div className="flex items-center space-x-1.5">
                                       <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 flex-shrink-0" />
                                       <span>
-                                        {monthName} {row.effective_year}
+                                        {MONTH_NAMES[row.effective_month - 1]}{" "}
+                                        {row.effective_year}
                                       </span>
                                     </div>
                                   </td>
                                   {COST_HEAD_KEYS.map((h) => {
-                                    const v =
-                                      row.cost_head_breakup?.[h.key] || 0;
+                                    const v = norm[h.key] || 0;
                                     return (
                                       <td
                                         key={h.key}
@@ -990,9 +990,9 @@ const InternalTeamDetails = () => {
                       ).length ? (
                         selectedEmployee.client_focus
                           .filter((c) => c.clientName)
-                          .map((client, index) => (
+                          .map((client, i) => (
                             <div
-                              key={index}
+                              key={i}
                               className="flex justify-between bg-white p-3 rounded border border-gray-200"
                             >
                               <span className="font-semibold text-gray-900">
@@ -1032,6 +1032,9 @@ const InternalTeamDetails = () => {
   );
 };
 
+/* ─────────────────────────────────────────────
+   Sub-components
+───────────────────────────────────────────── */
 const ViewSection = ({ icon, title, subtitle, badge, children }) => (
   <div className="bg-gray-50 p-4 rounded-lg">
     <div className="flex items-center space-x-2 mb-4">

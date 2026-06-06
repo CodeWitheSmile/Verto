@@ -1133,8 +1133,8 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
   const [payHeads, setPayHeads] = useState([]);
   const [designations, setDesignations] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [internalTeam, setInternalTeam] = useState([]);
   const [invoices, setInvoices] = useState([]);
-
   // ── Bulk upload state ──
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkMismatch, setBulkMismatch] = useState(null);
@@ -1193,7 +1193,7 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
   }, [isOpen]);
 
   const fetchMasters = async () => {
-    const [e, d, c, b, ph, des, emp, inv] = await Promise.all([
+    const [e, d, c, b, ph, des, emp, it, inv] = await Promise.all([
       supabase
         .from("entity_master")
         .select("id, entity_name")
@@ -1210,17 +1210,23 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
         .from("bank_master")
         .select("id, bank_name, account_number")
         .order("bank_name"),
-      supabase.from("pay_head_master").select("*").eq("is_active", true), // column is `name`
+      supabase.from("pay_head_master").select("*").eq("is_active", true),
       supabase
         .from("designation_master")
         .select("id, designation_name")
         .order("designation_name"),
+      // Fetch all employee_master records without server-side filtering
       supabase
         .from("employee_master")
         .select(
           "*, designation_master(designation_name), entity_master(entity_name), departments_master(dept_name), bank_master(bank_name)"
         )
         .order("employee_name"),
+      // Fetch all internal_team records without server-side filtering
+      supabase
+        .from("internal_team")
+        .select("id, emp_code, name, entity, department, designation, status")
+        .order("name"),
       supabase
         .from("invoices")
         .select(
@@ -1234,22 +1240,56 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
     if (!b.error) setBanks(b.data || []);
     if (!ph.error) setPayHeads(ph.data || []);
     if (!des.error) setDesignations(des.data || []);
-    if (!emp.error) setEmployees(emp.data || []);
+    // Client-side filtering for employee_master
+    if (!emp.error) {
+      setEmployees(
+        (emp.data || []).filter((r) => {
+          const code = (r.emp_code || "").toLowerCase();
+          return (
+            !code.startsWith("mock") &&
+            !code.startsWith("test") &&
+            !code.includes("_old")
+          );
+        })
+      );
+    }
+    // Client-side filtering for internal_team
+    if (!it.error) {
+      setInternalTeam(
+        (it.data || []).filter((r) => {
+          const code = (r.emp_code || "").toLowerCase();
+          return !code.startsWith("mock") && !code.startsWith("test");
+        })
+      );
+    }
     if (!inv.error) setInvoices(inv.data || []);
   };
 
   useEffect(() => {
     if (!intForm.empCode) return;
+
     const emp = employees.find((e) => e.emp_code === intForm.empCode);
-    if (!emp) return;
-    setIntForm((prev) => ({
-      ...prev,
-      name: emp.employee_name || "",
-      designation: emp.designation_master?.designation_name || "",
-      department: emp.departments_master?.dept_name || "",
-      bankId: emp.bank_id || "",
-    }));
-  }, [intForm.empCode, employees]);
+    if (emp) {
+      setIntForm((prev) => ({
+        ...prev,
+        name: emp.employee_name || "",
+        designation: emp.designation_master?.designation_name || "",
+        department: emp.departments_master?.dept_name || "",
+        bankId: emp.bank_id || "",
+      }));
+      return;
+    }
+
+    const it = internalTeam.find((e) => e.emp_code === intForm.empCode);
+    if (it) {
+      setIntForm((prev) => ({
+        ...prev,
+        name: it.name || "",
+        designation: it.designation || "",
+        department: it.department || "",
+      }));
+    }
+  }, [intForm.empCode, employees, internalTeam]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -1541,21 +1581,19 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
           .insert([payload]);
         if (insertErr) throw insertErr;
         if (incomeTax > 0) {
-          await supabase
-            .from("statutory_liabilities")
-            .insert([
-              {
-                source_type: "salary",
-                statutory_type: "TDS",
-                entity:
-                  row.entity ||
-                  emp?.entity_master?.entity_name ||
-                  emp?.entity ||
-                  "",
-                amount: incomeTax,
-                status: "pending",
-              },
-            ]);
+          await supabase.from("statutory_liabilities").insert([
+            {
+              source_type: "salary",
+              statutory_type: "TDS",
+              entity:
+                row.entity ||
+                emp?.entity_master?.entity_name ||
+                emp?.entity ||
+                "",
+              amount: incomeTax,
+              status: "pending",
+            },
+          ]);
         }
         added++;
       } catch (err) {
@@ -1857,10 +1895,26 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
             <SearchableSelect
               value={intForm.empCode}
               onChange={(v) => setInt("empCode", v)}
-              options={employees.map((e) => ({
-                value: e.emp_code,
-                label: `${e.emp_code} – ${e.employee_name}`,
-              }))}
+              options={[
+                // internal_team is primary source
+                ...internalTeam.map((it) => ({
+                  value: it.emp_code,
+                  label: `${it.emp_code} – ${it.name}`,
+                  _source: "internal_team",
+                })),
+                // employee_master as fallback — only show if not already in internal_team
+                ...employees
+                  .filter(
+                    (e) =>
+                      !internalTeam.some((it) => it.emp_code === e.emp_code) &&
+                      !e.emp_code?.toLowerCase().includes("old")
+                  )
+                  .map((e) => ({
+                    value: e.emp_code,
+                    label: `${e.emp_code} – ${e.employee_name}`,
+                    _source: "employee_master",
+                  })),
+              ]}
               placeholder="Type employee code or name..."
               error={errors.empCode}
             />

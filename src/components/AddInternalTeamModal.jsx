@@ -16,21 +16,15 @@ import {
 } from "lucide-react";
 import supabase from "../lib/supabaseClient";
 
-// ─── Cost heads ───────────────────────────────────────────────
+// ─── Cost heads — 4 keys only (must match DB jsonb keys exactly) ─────────────
 const COST_HEADS = [
-  { key: "OS", label: "OS", desc: "Operations" },
+  { key: "ops", label: "Ops", desc: "Operations" },
   { key: "temp", label: "Temp", desc: "Temporary Staffing" },
   { key: "rec", label: "Rec", desc: "Recruitment" },
   { key: "projects", label: "Projects", desc: "Project-Based" },
 ];
 
-const EMPTY_COST_HEAD = {
-  ops: 0,
-  temp: 0,
-  rec: 0,
-  projects: 0,
-};
-
+const EMPTY_COST_HEAD = { ops: 0, temp: 0, rec: 0, projects: 0 };
 const EMPTY_COST_SHIFT = {
   effective_month: "",
   effective_year: "",
@@ -75,10 +69,18 @@ const EMPTY_FORM = {
   gross_value: "",
   cost_head_breakup: { ...EMPTY_COST_HEAD },
   client_focus: [{ clientName: "", percentage: "" }],
-  // cost shift state (not saved to internal_team, managed separately)
   show_cost_shift: false,
   cost_shift: { ...EMPTY_COST_SHIFT },
 };
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+// Normalise any incoming cost_head_breakup to 4 keys only
+const normaliseCostHead = (raw) => ({
+  ops: Number(raw?.ops || raw?.OS || 0),
+  temp: Number(raw?.temp || 0),
+  rec: Number(raw?.rec || 0),
+  projects: Number(raw?.projects || 0),
+});
 
 const AddInternalTeamModal = ({
   isOpen,
@@ -94,15 +96,15 @@ const AddInternalTeamModal = ({
   const [deleting, setDeleting] = useState(false);
   const [emailOptions, setEmailOptions] = useState([]);
   const [loadingEmails, setLoadingEmails] = useState(false);
-
-  // cost history state
   const [costHistory, setCostHistory] = useState([]);
+  const [emailSearch, setEmailSearch] = useState("");
+  const [emailDropOpen, setEmailDropOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [shiftSaving, setShiftSaving] = useState(false);
   const [shiftSuccess, setShiftSuccess] = useState(false);
   const [grossManuallyEdited, setGrossManuallyEdited] = useState(false);
 
-  // ── Auto-calculated Gross Value ────────────────────────────
+  // ── Auto gross ───────────────────────────────────────────────────────────────
   const calculatedGrossValue = (
     parseFloat(formData.ctc || 0) +
     parseFloat(formData.pf || 0) +
@@ -112,21 +114,21 @@ const AddInternalTeamModal = ({
     parseFloat(formData.reimbursement || 0)
   ).toFixed(2);
 
-  // ── Fetch emails ──────────────────────────────────────────
+  // ── Fetch emails ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isOpen) return;
     setLoadingEmails(true);
     supabase
       .from("user_roles")
       .select("email, role")
-      .order("email", { ascending: true })
+      .order("email")
       .then(({ data, error }) => {
         if (!error && data) setEmailOptions(data);
         setLoadingEmails(false);
       });
   }, [isOpen]);
 
-  // ── Fetch cost history when editing ──────────────────────
+  // ── Fetch cost history ────────────────────────────────────────────────────────
   const fetchCostHistory = async (empId) => {
     if (!empId) {
       setCostHistory([]);
@@ -143,7 +145,7 @@ const AddInternalTeamModal = ({
     setHistoryLoading(false);
   };
 
-  // ── Pre-fill or reset ─────────────────────────────────────
+  // ── Pre-fill / reset ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isOpen) return;
     if (editingEmployee) {
@@ -168,9 +170,8 @@ const AddInternalTeamModal = ({
         other_component: String(editingEmployee.other_component || ""),
         reimbursement: String(editingEmployee.reimbursement || ""),
         gross_value: String(editingEmployee.gross_value || ""),
-        cost_head_breakup: editingEmployee.cost_head_breakup || {
-          ...EMPTY_COST_HEAD,
-        },
+        // normalise so any old 9-key data still loads correctly
+        cost_head_breakup: normaliseCostHead(editingEmployee.cost_head_breakup),
         client_focus: editingEmployee.client_focus?.length
           ? editingEmployee.client_focus
           : [{ clientName: "", percentage: "" }],
@@ -189,13 +190,10 @@ const AddInternalTeamModal = ({
     setGrossManuallyEdited(false);
   }, [editingEmployee, isOpen]);
 
-  // ── Auto-update Gross Value ───────────────────────────────
+  // ── Auto gross update ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!grossManuallyEdited) {
-      setFormData((prev) => ({
-        ...prev,
-        gross_value: calculatedGrossValue,
-      }));
+      setFormData((prev) => ({ ...prev, gross_value: calculatedGrossValue }));
     }
   }, [
     formData.ctc,
@@ -207,33 +205,32 @@ const AddInternalTeamModal = ({
     grossManuallyEdited,
   ]);
 
-  // ── Helpers ───────────────────────────────────────────────
+  // ── Setters ───────────────────────────────────────────────────────────────────
   const set = (field, value) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-    if (errors[field]) setErrors((prev) => ({ ...prev, [field]: "" }));
+    setFormData((p) => ({ ...p, [field]: value }));
+    if (errors[field]) setErrors((p) => ({ ...p, [field]: "" }));
   };
 
   const setCostHead = (key, value) => {
     const num = Math.min(100, Math.max(0, parseInt(value) || 0));
-    setFormData((prev) => ({
-      ...prev,
-      cost_head_breakup: { ...prev.cost_head_breakup, [key]: num },
+    setFormData((p) => ({
+      ...p,
+      cost_head_breakup: { ...p.cost_head_breakup, [key]: num },
     }));
     if (errors.cost_head_breakup)
-      setErrors((prev) => ({ ...prev, cost_head_breakup: "" }));
+      setErrors((p) => ({ ...p, cost_head_breakup: "" }));
   };
 
   const setShiftCostHead = (key, value) => {
     const num = Math.min(100, Math.max(0, parseInt(value) || 0));
-    setFormData((prev) => ({
-      ...prev,
+    setFormData((p) => ({
+      ...p,
       cost_shift: {
-        ...prev.cost_shift,
-        cost_head_breakup: { ...prev.cost_shift.cost_head_breakup, [key]: num },
+        ...p.cost_shift,
+        cost_head_breakup: { ...p.cost_shift.cost_head_breakup, [key]: num },
       },
     }));
-    if (errors.shift_breakup)
-      setErrors((prev) => ({ ...prev, shift_breakup: "" }));
+    if (errors.shift_breakup) setErrors((p) => ({ ...p, shift_breakup: "" }));
   };
 
   const setClientFocus = (index, field, value) => {
@@ -245,24 +242,22 @@ const AddInternalTeamModal = ({
           }
         : c
     );
-    setFormData((prev) => ({ ...prev, client_focus: updated }));
-    if (errors.client_focus)
-      setErrors((prev) => ({ ...prev, client_focus: "" }));
+    setFormData((p) => ({ ...p, client_focus: updated }));
+    if (errors.client_focus) setErrors((p) => ({ ...p, client_focus: "" }));
   };
 
   const addClient = () =>
-    setFormData((prev) => ({
-      ...prev,
-      client_focus: [...prev.client_focus, { clientName: "", percentage: "" }],
+    setFormData((p) => ({
+      ...p,
+      client_focus: [...p.client_focus, { clientName: "", percentage: "" }],
     }));
-
   const removeClient = (i) =>
-    setFormData((prev) => ({
-      ...prev,
-      client_focus: prev.client_focus.filter((_, idx) => idx !== i),
+    setFormData((p) => ({
+      ...p,
+      client_focus: p.client_focus.filter((_, idx) => idx !== i),
     }));
 
-  // ── Totals ────────────────────────────────────────────────
+  // ── Totals ────────────────────────────────────────────────────────────────────
   const costTotal = Object.values(formData.cost_head_breakup).reduce(
     (s, v) => s + (parseInt(v) || 0),
     0
@@ -278,7 +273,7 @@ const AddInternalTeamModal = ({
     0
   );
 
-  // ── Validation ────────────────────────────────────────────
+  // ── Validate ──────────────────────────────────────────────────────────────────
   const validate = () => {
     const e = {};
     if (!formData.entity) e.entity = "Entity is required";
@@ -296,7 +291,7 @@ const AddInternalTeamModal = ({
     return Object.keys(e).length === 0;
   };
 
-  // ── Submit ────────────────────────────────────────────────
+  // ── Submit ────────────────────────────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validate()) return;
@@ -323,20 +318,30 @@ const AddInternalTeamModal = ({
       variable: parseFloat(formData.variable) || 0,
       other_component: parseFloat(formData.other_component) || 0,
       reimbursement: parseFloat(formData.reimbursement) || 0,
-      cost_head_breakup: formData.cost_head_breakup,
-      client_focus: formData.client_focus.filter((c) => c.clientName.trim()),
       gross_value: parseFloat(formData.gross_value || 0),
+      // Always save exactly 4 keys
+      cost_head_breakup: {
+        ops: parseInt(formData.cost_head_breakup.ops) || 0,
+        temp: parseInt(formData.cost_head_breakup.temp) || 0,
+        rec: parseInt(formData.cost_head_breakup.rec) || 0,
+        projects: parseInt(formData.cost_head_breakup.projects) || 0,
+      },
+      client_focus: formData.client_focus.filter((c) => c.clientName.trim()),
     };
 
     try {
-      const { data: existingEmp } = await supabase
+      // Check emp_code uniqueness (skip self when editing)
+      const { data: existing } = await supabase
         .from("internal_team")
         .select("id")
-        .eq("emp_code", formData.emp_code.trim())
-        .neq("id", editingEmployee?.id || "")
+        .eq("emp_code", payload.emp_code)
+        .neq(
+          "id",
+          editingEmployee?.id || "00000000-0000-0000-0000-000000000000"
+        )
         .maybeSingle();
 
-      if (existingEmp) {
+      if (existing) {
         setSaveError("Employee code already exists.");
         setSaving(false);
         return;
@@ -355,13 +360,13 @@ const AddInternalTeamModal = ({
       onSaved?.();
       onClose();
     } catch (err) {
-      setSaveError(err.message || "Failed to save. Please try again.");
+      setSaveError(err.message || "Failed to save.");
     } finally {
       setSaving(false);
     }
   };
 
-  // ── Save Cost Shift ───────────────────────────────────────
+  // ── Save Cost Shift ───────────────────────────────────────────────────────────
   const handleSaveCostShift = async () => {
     const e = {};
     if (!formData.cost_shift.effective_month) e.shift_month = "Required";
@@ -369,12 +374,11 @@ const AddInternalTeamModal = ({
     if (shiftTotal !== 100)
       e.shift_breakup = `Must total 100% (currently ${shiftTotal}%)`;
     if (Object.keys(e).length) {
-      setErrors((prev) => ({ ...prev, ...e }));
+      setErrors((p) => ({ ...p, ...e }));
       return;
     }
-
     if (!editingEmployee?.id) {
-      setSaveError("Save the employee record first before adding cost shifts.");
+      setSaveError("Save the employee first.");
       return;
     }
 
@@ -385,25 +389,30 @@ const AddInternalTeamModal = ({
         employee_id: editingEmployee.id,
         effective_month: parseInt(formData.cost_shift.effective_month),
         effective_year: parseInt(formData.cost_shift.effective_year),
-        cost_head_breakup: formData.cost_shift.cost_head_breakup,
+        cost_head_breakup: {
+          ops: parseInt(formData.cost_shift.cost_head_breakup.ops) || 0,
+          temp: parseInt(formData.cost_shift.cost_head_breakup.temp) || 0,
+          rec: parseInt(formData.cost_shift.cost_head_breakup.rec) || 0,
+          projects:
+            parseInt(formData.cost_shift.cost_head_breakup.projects) || 0,
+        },
       },
       { onConflict: "employee_id,effective_month,effective_year" }
     );
-
     if (error) {
-      setSaveError(error.message || "Failed to save cost shift.");
+      setSaveError(error.message);
     } else {
-      setFormData((prev) => ({
-        ...prev,
+      setFormData((p) => ({
+        ...p,
         show_cost_shift: false,
         cost_shift: { ...EMPTY_COST_SHIFT },
       }));
-      setErrors((prev) => {
-        const next = { ...prev };
-        delete next.shift_month;
-        delete next.shift_year;
-        delete next.shift_breakup;
-        return next;
+      setErrors((p) => {
+        const n = { ...p };
+        delete n.shift_month;
+        delete n.shift_year;
+        delete n.shift_breakup;
+        return n;
       });
       setShiftSuccess(true);
       await fetchCostHistory(editingEmployee.id);
@@ -412,7 +421,7 @@ const AddInternalTeamModal = ({
     setShiftSaving(false);
   };
 
-  // ── Delete ────────────────────────────────────────────────
+  // ── Delete ────────────────────────────────────────────────────────────────────
   const handleDelete = async () => {
     if (!editingEmployee?.id) return;
     setDeleting(true);
@@ -434,7 +443,6 @@ const AddInternalTeamModal = ({
 
   if (!isOpen) return null;
 
-  // Shared input class — always black text
   const inputCls = (field) =>
     `w-full border rounded-lg px-3 py-2 text-sm text-gray-900 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors placeholder-gray-400 ${
       errors[field] ? "border-red-400 bg-red-50" : "border-gray-300 bg-white"
@@ -451,7 +459,7 @@ const AddInternalTeamModal = ({
         onClick={onClose}
       />
 
-      {/* Delete Confirm Dialog */}
+      {/* Delete Confirm */}
       <AnimatePresence>
         {showDeleteConfirm && (
           <motion.div
@@ -468,23 +476,20 @@ const AddInternalTeamModal = ({
                 Delete Employee?
               </h3>
               <p className="text-sm text-gray-600 mb-6">
-                This will permanently delete{" "}
-                <strong className="text-gray-900">
-                  {editingEmployee?.name}
-                </strong>
-                . This cannot be undone.
+                Permanently delete <strong>{editingEmployee?.name}</strong>.
+                Cannot be undone.
               </p>
               <div className="flex space-x-3">
                 <button
                   onClick={() => setShowDeleteConfirm(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-800 font-medium hover:bg-gray-50 text-sm transition-colors"
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-800 font-medium hover:bg-gray-50 text-sm"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleDelete}
                   disabled={deleting}
-                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium disabled:opacity-60 flex items-center justify-center space-x-2 transition-colors"
+                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium disabled:opacity-60 flex items-center justify-center space-x-2"
                 >
                   {deleting ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -522,7 +527,7 @@ const AddInternalTeamModal = ({
                 <button
                   type="button"
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 bg-red-500/80 hover:bg-red-500 rounded-lg text-sm font-medium transition-colors"
+                  className="flex items-center space-x-1.5 px-3 py-1.5 bg-red-500/80 hover:bg-red-500 rounded-lg text-sm font-medium"
                 >
                   <Trash2 className="w-4 h-4" />
                   <span>Delete</span>
@@ -530,7 +535,7 @@ const AddInternalTeamModal = ({
               )}
               <button
                 onClick={onClose}
-                className="p-1.5 text-white/80 hover:text-white transition-colors"
+                className="p-1.5 text-white/80 hover:text-white"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -550,14 +555,14 @@ const AddInternalTeamModal = ({
                     onChange={(e) => set("entity", e.target.value)}
                     className={inputCls("entity")}
                   >
-                    <option value="" className="text-gray-400">
-                      Select Entity
-                    </option>
-                    <option className="text-gray-900">
-                      Verto India Pvt Ltd
-                    </option>
-                    <option className="text-gray-900">Verto Global LLC</option>
-                    <option className="text-gray-900">Verto UK Ltd</option>
+                    <option value="">Select Entity</option>
+                    {[
+                      "Verto India Pvt Ltd",
+                      "Verto Global LLC",
+                      "Verto UK Ltd",
+                    ].map((e) => (
+                      <option key={e}>{e}</option>
+                    ))}
                   </select>
                 </Field>
                 <Field label="Department" required error={errors.department}>
@@ -566,9 +571,7 @@ const AddInternalTeamModal = ({
                     onChange={(e) => set("department", e.target.value)}
                     className={inputCls("department")}
                   >
-                    <option value="" className="text-gray-400">
-                      Select Department
-                    </option>
+                    <option value="">Select Department</option>
                     {[
                       "Common",
                       "OS",
@@ -582,14 +585,11 @@ const AddInternalTeamModal = ({
                       "Projects",
                       "Others",
                     ].map((d) => (
-                      <option key={d} className="text-gray-900">
-                        {d}
-                      </option>
+                      <option key={d}>{d}</option>
                     ))}
                   </select>
                 </Field>
               </div>
-
               <div className="grid grid-cols-3 gap-4">
                 <Field label="Emp Code" required error={errors.emp_code}>
                   <input
@@ -619,7 +619,6 @@ const AddInternalTeamModal = ({
                   />
                 </Field>
               </div>
-
               <div className="grid grid-cols-3 gap-4">
                 <Field label="Designation" required error={errors.designation}>
                   <input
@@ -639,39 +638,98 @@ const AddInternalTeamModal = ({
                     placeholder="City"
                   />
                 </Field>
-
-                {/* Email Dropdown */}
                 <Field label="Login Email (from User Roles)">
-                  <div className="relative">
-                    <select
-                      value={formData.email}
-                      onChange={(e) => set("email", e.target.value)}
-                      className={inputCls("email")}
+                  <div
+                    className="relative"
+                    onBlur={(e) => {
+                      // close only if focus leaves the whole container
+                      if (!e.currentTarget.contains(e.relatedTarget)) {
+                        setEmailDropOpen(false);
+                      }
+                    }}
+                  >
+                    <input
+                      type="text"
+                      value={emailSearch || formData.email}
+                      onChange={(e) => {
+                        setEmailSearch(e.target.value);
+                        set("email", e.target.value); // allow manual override
+                        setEmailDropOpen(true);
+                      }}
+                      onFocus={() => setEmailDropOpen(true)}
+                      placeholder={
+                        loadingEmails ? "Loading…" : "Type or search email…"
+                      }
                       disabled={loadingEmails}
-                    >
-                      <option value="" className="text-gray-400">
-                        {loadingEmails
-                          ? "Loading emails…"
-                          : "— Select Login Email —"}
-                      </option>
-                      {emailOptions.map((u) => (
-                        <option
-                          key={u.email}
-                          value={u.email}
-                          className="text-gray-900"
-                        >
-                          {u.email} ({u.role})
-                        </option>
-                      ))}
-                    </select>
+                      className={inputCls("email") + " pr-8"}
+                      autoComplete="off"
+                    />
                     {loadingEmails && (
-                      <Loader2 className="absolute right-8 top-2.5 w-4 h-4 animate-spin text-gray-400" />
+                      <Loader2 className="absolute right-3 top-2.5 w-4 h-4 animate-spin text-gray-400" />
+                    )}
+                    {emailDropOpen && !loadingEmails && (
+                      <div className="absolute z-30 top-full left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg mt-1 max-h-48 overflow-y-auto">
+                        {emailOptions
+                          .filter((u) =>
+                            u.email
+                              .toLowerCase()
+                              .includes(
+                                (
+                                  emailSearch ||
+                                  formData.email ||
+                                  ""
+                                ).toLowerCase()
+                              )
+                          )
+                          .sort((a, b) => {
+                            const kw = (
+                              emailSearch ||
+                              formData.email ||
+                              ""
+                            ).toLowerCase();
+                            return a.email.toLowerCase().startsWith(kw)
+                              ? -1
+                              : b.email.toLowerCase().startsWith(kw)
+                              ? 1
+                              : a.email.localeCompare(b.email);
+                          })
+                          .map((u) => (
+                            <button
+                              key={u.email}
+                              type="button"
+                              tabIndex={0}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                set("email", u.email);
+                                setEmailSearch("");
+                                setEmailDropOpen(false);
+                              }}
+                              className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-sm border-b border-gray-100 last:border-0"
+                            >
+                              <p className="font-medium text-gray-900">
+                                {u.email}
+                              </p>
+                              <p className="text-xs text-gray-400">{u.role}</p>
+                            </button>
+                          ))}
+                        {emailOptions.filter((u) =>
+                          u.email
+                            .toLowerCase()
+                            .includes(
+                              (
+                                emailSearch ||
+                                formData.email ||
+                                ""
+                              ).toLowerCase()
+                            )
+                        ).length === 0 && (
+                          <p className="px-4 py-3 text-xs text-gray-400">
+                            No match — value typed will be saved as-is
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
-                  <p className="text-[10px] text-gray-500 mt-1">
-                    Links this employee to their app login. Add users in User
-                    Management first.
-                  </p>
                 </Field>
               </div>
             </Section>
@@ -712,12 +770,8 @@ const AddInternalTeamModal = ({
                     onChange={(e) => set("status", e.target.value)}
                     className={inputCls("")}
                   >
-                    <option className="text-gray-900" value="Active">
-                      Active
-                    </option>
-                    <option className="text-gray-900" value="Not Active">
-                      Not Active
-                    </option>
+                    <option value="Active">Active</option>
+                    <option value="Not Active">Not Active</option>
                   </select>
                 </Field>
               </div>
@@ -729,53 +783,32 @@ const AddInternalTeamModal = ({
               title="Compensation Details (Monthly, INR)"
             >
               <div className="grid grid-cols-4 gap-4">
-                <Field
-                  label="Fixed Salary (Monthly)"
-                  required
-                  error={errors.ctc}
-                >
-                  <MoneyInput
-                    value={formData.ctc}
-                    onChange={(v) => set("ctc", v)}
-                    error={errors.ctc}
-                  />
-                </Field>
-                <Field label="PF">
-                  <MoneyInput
-                    value={formData.pf}
-                    onChange={(v) => set("pf", v)}
-                  />
-                </Field>
-                <Field label="ESI">
-                  <MoneyInput
-                    value={formData.esi}
-                    onChange={(v) => set("esi", v)}
-                  />
-                </Field>
-                <Field label="Bonus">
-                  <MoneyInput
-                    value={formData.bonus}
-                    onChange={(v) => set("bonus", v)}
-                  />
-                </Field>
-                <Field label="Variable Pay">
-                  <MoneyInput
-                    value={formData.variable}
-                    onChange={(v) => set("variable", v)}
-                  />
-                </Field>
-                <Field label="Other Component">
-                  <MoneyInput
-                    value={formData.other_component}
-                    onChange={(v) => set("other_component", v)}
-                  />
-                </Field>
-                <Field label="Reimbursement">
-                  <MoneyInput
-                    value={formData.reimbursement}
-                    onChange={(v) => set("reimbursement", v)}
-                  />
-                </Field>
+                {[
+                  {
+                    field: "ctc",
+                    label: "Fixed Salary (Monthly)",
+                    required: true,
+                  },
+                  { field: "pf", label: "PF" },
+                  { field: "esi", label: "ESI" },
+                  { field: "bonus", label: "Bonus" },
+                  { field: "variable", label: "Variable Pay" },
+                  { field: "other_component", label: "Other Component" },
+                  { field: "reimbursement", label: "Reimbursement" },
+                ].map(({ field, label, required }) => (
+                  <Field
+                    key={field}
+                    label={label}
+                    required={required}
+                    error={errors[field]}
+                  >
+                    <MoneyInput
+                      value={formData[field]}
+                      onChange={(v) => set(field, v)}
+                      error={errors[field]}
+                    />
+                  </Field>
+                ))}
                 <Field label="Gross Value">
                   <MoneyInput
                     value={formData.gross_value || ""}
@@ -788,8 +821,8 @@ const AddInternalTeamModal = ({
                     type="button"
                     onClick={() => {
                       setGrossManuallyEdited(false);
-                      setFormData((prev) => ({
-                        ...prev,
+                      setFormData((p) => ({
+                        ...p,
                         gross_value: calculatedGrossValue,
                       }));
                     }}
@@ -801,7 +834,7 @@ const AddInternalTeamModal = ({
               </div>
             </Section>
 
-            {/* ── Section 4: Cost Head Break Up (Default / from DOJ) ── */}
+            {/* ── Section 4: Cost Head Break Up ── */}
             <Section
               title="Cost Head Break Up"
               subtitle={
@@ -829,109 +862,47 @@ const AddInternalTeamModal = ({
               }
             >
               <p className="text-xs text-gray-600 -mt-2 mb-3">
-                Split this employee's salary cost across departments. Must total
-                exactly 100%.
+                Split salary cost across departments. Must total exactly 100%.
               </p>
 
-              {/* ── Shortcut Buttons ── */}
+              {/* Shortcut Buttons */}
               <div className="flex flex-wrap gap-2 mb-4">
                 {[
                   {
-                    label: "Rec + Ops 50/50",
-                    fn: () =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        cost_head_breakup: {
-                          ops: 50,
-                          temp: 0,
-                          rec: 50,
-                          projects: 0,
-                        },
-                      })),
-                  },
-                  {
                     label: "Rec Only",
-                    fn: () =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        cost_head_breakup: {
-                          ops: 0,
-                          temp: 0,
-                          rec: 100,
-                          projects: 0,
-                        },
-                      })),
-                  },
-                  {
-                    label: "Temp Only",
-                    fn: () =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        cost_head_breakup: {
-                          ops: 0,
-                          temp: 100,
-                          rec: 0,
-                          projects: 0,
-                        },
-                      })),
-                  },
-                  {
-                    label: "Projects Only",
-                    fn: () =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        cost_head_breakup: {
-                          ops: 0,
-                          temp: 0,
-                          rec: 0,
-                          projects: 100,
-                        },
-                      })),
+                    v: { ops: 0, temp: 0, rec: 100, projects: 0 },
                   },
                   {
                     label: "Ops Only",
-                    fn: () =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        cost_head_breakup: {
-                          ops: 100,
-                          temp: 0,
-                          rec: 0,
-                          projects: 0,
-                        },
-                      })),
+                    v: { ops: 100, temp: 0, rec: 0, projects: 0 },
                   },
                   {
-                    label: "Split 25/25/25/25",
-                    fn: () =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        cost_head_breakup: {
-                          ops: 25,
-                          temp: 25,
-                          rec: 25,
-                          projects: 25,
-                        },
-                      })),
+                    label: "Temp Only",
+                    v: { ops: 0, temp: 100, rec: 0, projects: 0 },
+                  },
+                  {
+                    label: "Projects Only",
+                    v: { ops: 0, temp: 0, rec: 0, projects: 100 },
+                  },
+                  {
+                    label: "Rec+Ops 50/50",
+                    v: { ops: 50, temp: 0, rec: 50, projects: 0 },
+                  },
+                  {
+                    label: "Split 25 each",
+                    v: { ops: 25, temp: 25, rec: 25, projects: 25 },
                   },
                   {
                     label: "Reset",
-                    fn: () =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        cost_head_breakup: {
-                          ops: 0,
-                          temp: 0,
-                          rec: 0,
-                          projects: 0,
-                        },
-                      })),
+                    v: { ops: 0, temp: 0, rec: 0, projects: 0 },
                   },
                 ].map((b) => (
                   <button
                     key={b.label}
                     type="button"
-                    onClick={b.fn}
+                    onClick={() =>
+                      setFormData((p) => ({ ...p, cost_head_breakup: b.v }))
+                    }
                     className="text-xs font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-1.5 rounded-lg transition-colors"
                   >
                     {b.label}
@@ -958,7 +929,7 @@ const AddInternalTeamModal = ({
                         className={`w-full border rounded-lg px-3 py-2 pr-7 text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 text-center font-mono transition-colors ${
                           formData.cost_head_breakup[key] > 0
                             ? "border-blue-300 bg-blue-50 text-blue-800"
-                            : "border-gray-300 bg-white text-gray-900"
+                            : "border-gray-300 bg-white"
                         }`}
                       />
                       <span className="absolute right-2 top-2 text-gray-500 text-xs font-semibold">
@@ -991,7 +962,6 @@ const AddInternalTeamModal = ({
                   ))}
                 </div>
               )}
-
               {errors.cost_head_breakup && (
                 <p className="text-sm text-red-700 font-medium flex items-center mt-1">
                   <AlertCircle className="w-4 h-4 mr-1 flex-shrink-0" />
@@ -1000,11 +970,11 @@ const AddInternalTeamModal = ({
               )}
             </Section>
 
-            {/* ── Section 4.5: Cost Head Shift History ── */}
+            {/* ── Section 5: Cost Head Shift History ── */}
             <Section
               icon={<History className="w-4 h-4" />}
               title="Cost Head Shift History"
-              subtitle="Record a new cost allocation change effective from a specific month & year. Each shift is saved permanently and visible in the View page."
+              subtitle="Record a cost allocation change effective from a specific month & year."
               action={
                 editingEmployee?.id ? (
                   <button
@@ -1012,9 +982,9 @@ const AddInternalTeamModal = ({
                     onClick={() =>
                       set("show_cost_shift", !formData.show_cost_shift)
                     }
-                    className={`flex items-center space-x-1 px-3 py-1.5 rounded-lg transition-colors text-xs font-medium ${
+                    className={`flex items-center space-x-1 px-3 py-1.5 rounded-lg text-xs font-medium ${
                       formData.show_cost_shift
-                        ? "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                        ? "bg-gray-200 text-gray-700"
                         : "bg-indigo-600 text-white hover:bg-indigo-700"
                     }`}
                   >
@@ -1025,12 +995,11 @@ const AddInternalTeamModal = ({
                   </button>
                 ) : (
                   <span className="text-xs text-gray-400 italic">
-                    Save employee first to add shifts
+                    Save employee first
                   </span>
                 )
               }
             >
-              {/* Success banner */}
               <AnimatePresence>
                 {shiftSuccess && (
                   <motion.div
@@ -1040,12 +1009,11 @@ const AddInternalTeamModal = ({
                     className="flex items-center space-x-2 p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-sm font-medium"
                   >
                     <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-                    <span>Cost shift saved successfully!</span>
+                    <span>Cost shift saved!</span>
                   </motion.div>
                 )}
               </AnimatePresence>
 
-              {/* Add Shift Form */}
               <AnimatePresence>
                 {formData.show_cost_shift && (
                   <motion.div
@@ -1058,8 +1026,6 @@ const AddInternalTeamModal = ({
                       <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wider">
                         New Cost Shift Entry
                       </p>
-
-                      {/* Month + Year */}
                       <div className="grid grid-cols-2 gap-4 max-w-xs">
                         <Field
                           label="Effective Month"
@@ -1069,17 +1035,17 @@ const AddInternalTeamModal = ({
                           <select
                             value={formData.cost_shift.effective_month}
                             onChange={(e) => {
-                              setFormData((prev) => ({
-                                ...prev,
+                              setFormData((p) => ({
+                                ...p,
                                 cost_shift: {
-                                  ...prev.cost_shift,
+                                  ...p.cost_shift,
                                   effective_month: e.target.value,
                                 },
                               }));
                               if (errors.shift_month)
                                 setErrors((p) => ({ ...p, shift_month: "" }));
                             }}
-                            className={`w-full border rounded-lg px-3 py-2 text-sm text-gray-900 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
+                            className={`w-full border rounded-lg px-3 py-2 text-sm text-gray-900 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
                               errors.shift_month
                                 ? "border-red-400 bg-red-50"
                                 : "border-gray-300 bg-white"
@@ -1101,17 +1067,17 @@ const AddInternalTeamModal = ({
                           <select
                             value={formData.cost_shift.effective_year}
                             onChange={(e) => {
-                              setFormData((prev) => ({
-                                ...prev,
+                              setFormData((p) => ({
+                                ...p,
                                 cost_shift: {
-                                  ...prev.cost_shift,
+                                  ...p.cost_shift,
                                   effective_year: e.target.value,
                                 },
                               }));
                               if (errors.shift_year)
                                 setErrors((p) => ({ ...p, shift_year: "" }));
                             }}
-                            className={`w-full border rounded-lg px-3 py-2 text-sm text-gray-900 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
+                            className={`w-full border rounded-lg px-3 py-2 text-sm text-gray-900 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
                               errors.shift_year
                                 ? "border-red-400 bg-red-50"
                                 : "border-gray-300 bg-white"
@@ -1129,12 +1095,9 @@ const AddInternalTeamModal = ({
                           </select>
                         </Field>
                       </div>
-
-                      {/* Total badge */}
                       <div className="flex items-center justify-between">
                         <p className="text-xs text-gray-600">
-                          Enter new cost allocation for this period. Must total
-                          100%.
+                          New cost allocation. Must total 100%.
                         </p>
                         <span
                           className={`text-sm font-bold px-3 py-1 rounded-full ${
@@ -1153,8 +1116,6 @@ const AddInternalTeamModal = ({
                           )}
                         </span>
                       </div>
-
-                      {/* 4 cost head inputs */}
                       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                         {COST_HEADS.map(({ key, label, desc }) => (
                           <div key={key}>
@@ -1175,10 +1136,10 @@ const AddInternalTeamModal = ({
                                 onChange={(e) =>
                                   setShiftCostHead(key, e.target.value)
                                 }
-                                className={`w-full border rounded-lg px-3 py-2 pr-7 text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-center font-mono transition-colors ${
+                                className={`w-full border rounded-lg px-3 py-2 pr-7 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 text-center font-mono ${
                                   formData.cost_shift.cost_head_breakup[key] > 0
                                     ? "border-indigo-300 bg-indigo-50 text-indigo-800"
-                                    : "border-gray-300 bg-white"
+                                    : "border-gray-300 bg-white text-gray-900"
                                 }`}
                               />
                               <span className="absolute right-2 top-2 text-gray-500 text-xs font-semibold">
@@ -1188,45 +1149,17 @@ const AddInternalTeamModal = ({
                           </div>
                         ))}
                       </div>
-
-                      {/* Shift visual bar */}
-                      {shiftTotal > 0 && (
-                        <div className="h-2 rounded-full overflow-hidden bg-gray-100 flex">
-                          {COST_HEADS.filter(
-                            (h) =>
-                              formData.cost_shift.cost_head_breakup[h.key] > 0
-                          ).map(({ key, label }, i) => (
-                            <div
-                              key={key}
-                              title={`${label}: ${formData.cost_shift.cost_head_breakup[key]}%`}
-                              style={{
-                                width: `${formData.cost_shift.cost_head_breakup[key]}%`,
-                              }}
-                              className={`h-full transition-all ${
-                                [
-                                  "bg-indigo-500",
-                                  "bg-violet-500",
-                                  "bg-purple-500",
-                                  "bg-pink-500",
-                                ][i % 4]
-                              }`}
-                            />
-                          ))}
-                        </div>
-                      )}
-
                       {errors.shift_breakup && (
                         <p className="text-sm text-red-700 font-medium flex items-center">
                           <AlertCircle className="w-4 h-4 mr-1 flex-shrink-0" />
                           {errors.shift_breakup}
                         </p>
                       )}
-
                       <button
                         type="button"
                         onClick={handleSaveCostShift}
                         disabled={shiftSaving}
-                        className="flex items-center space-x-2 px-5 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium transition-colors"
+                        className="flex items-center space-x-2 px-5 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium"
                       >
                         {shiftSaving && (
                           <Loader2 className="w-4 h-4 animate-spin" />
@@ -1240,7 +1173,7 @@ const AddInternalTeamModal = ({
                 )}
               </AnimatePresence>
 
-              {/* History Table */}
+              {/* History table */}
               {historyLoading ? (
                 <div className="flex items-center space-x-2 text-sm text-gray-500 py-2">
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -1249,21 +1182,21 @@ const AddInternalTeamModal = ({
               ) : costHistory.length === 0 ? (
                 <p className="text-sm text-gray-400 italic py-1">
                   {editingEmployee?.id
-                    ? "No cost shifts recorded yet. Click 'Add Shift' to record a change."
-                    : "Save the employee first to manage cost shift history."}
+                    ? "No cost shifts yet."
+                    : "Save employee first."}
                 </p>
               ) : (
                 <div className="overflow-x-auto rounded-lg border border-gray-200">
                   <table className="w-full text-xs border-collapse">
                     <thead>
                       <tr className="bg-gray-100 text-gray-600 font-semibold uppercase tracking-wider">
-                        <th className="px-3 py-2 text-left border-b border-gray-200 whitespace-nowrap">
+                        <th className="px-3 py-2 text-left border-b border-gray-200">
                           Period
                         </th>
                         {COST_HEADS.map((h) => (
                           <th
                             key={h.key}
-                            className="px-2 py-2 text-center border-b border-gray-200 whitespace-nowrap"
+                            className="px-2 py-2 text-center border-b border-gray-200"
                           >
                             {h.label}
                           </th>
@@ -1275,11 +1208,11 @@ const AddInternalTeamModal = ({
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {costHistory.map((row, idx) => {
+                        const norm = normaliseCostHead(row.cost_head_breakup);
                         const total = COST_HEADS.reduce(
-                          (s, h) => s + (row.cost_head_breakup?.[h.key] || 0),
+                          (s, h) => s + (norm[h.key] || 0),
                           0
                         );
-                        const monthName = MONTH_NAMES[row.effective_month - 1];
                         return (
                           <tr
                             key={row.id}
@@ -1287,11 +1220,12 @@ const AddInternalTeamModal = ({
                               idx % 2 === 0 ? "bg-white" : "bg-gray-50/60"
                             }
                           >
-                            <td className="px-3 py-2 font-semibold text-gray-900 whitespace-nowrap">
-                              {monthName} {row.effective_year}
+                            <td className="px-3 py-2 font-semibold text-gray-900">
+                              {MONTH_NAMES[row.effective_month - 1]}{" "}
+                              {row.effective_year}
                             </td>
                             {COST_HEADS.map((h) => {
-                              const v = row.cost_head_breakup?.[h.key] || 0;
+                              const v = norm[h.key] || 0;
                               return (
                                 <td
                                   key={h.key}
@@ -1321,10 +1255,10 @@ const AddInternalTeamModal = ({
               )}
             </Section>
 
-            {/* ── Section 5: Client Focus ── */}
+            {/* ── Section 6: Client Focus ── */}
             <Section
               title="Client Name(s) & % Focus"
-              subtitle="Optional — allocate this employee's time/cost across clients. Must total 100% if filled."
+              subtitle="Optional — allocate time/cost across clients. Must total 100% if filled."
               badge={
                 filledClients.length > 0 && (
                   <span
@@ -1342,7 +1276,7 @@ const AddInternalTeamModal = ({
                 <button
                   type="button"
                   onClick={addClient}
-                  className="flex items-center space-x-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-xs font-medium"
+                  className="flex items-center space-x-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs font-medium"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Add Client</span>
@@ -1358,7 +1292,7 @@ const AddInternalTeamModal = ({
                       onChange={(e) =>
                         setClientFocus(index, "clientName", e.target.value)
                       }
-                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 bg-white"
+                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                       placeholder={`Client ${index + 1} name`}
                     />
                     <div className="relative w-28">
@@ -1370,7 +1304,7 @@ const AddInternalTeamModal = ({
                         onChange={(e) =>
                           setClientFocus(index, "percentage", e.target.value)
                         }
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-7 text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 text-center font-mono bg-white"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-7 text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 text-center bg-white"
                         placeholder="0"
                       />
                       <span className="absolute right-2 top-2 text-gray-500 text-xs font-semibold">
@@ -1381,7 +1315,7 @@ const AddInternalTeamModal = ({
                       <button
                         type="button"
                         onClick={() => removeClient(index)}
-                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -1410,14 +1344,14 @@ const AddInternalTeamModal = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-5 py-2 border border-gray-300 rounded-lg text-gray-800 font-medium hover:bg-gray-50 text-sm transition-colors"
+                className="px-5 py-2 border border-gray-300 rounded-lg text-gray-800 font-medium hover:bg-gray-50 text-sm"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={saving || costTotal !== 100}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium transition-colors flex items-center space-x-2"
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium flex items-center space-x-2"
               >
                 {saving && <Loader2 className="w-4 h-4 animate-spin" />}
                 <span>
@@ -1437,7 +1371,7 @@ const AddInternalTeamModal = ({
   );
 };
 
-// ─── Sub-components ───────────────────────────────────────────
+// ─── Sub-components ──────────────────────────────────────────────────────────
 const Section = ({ icon, title, subtitle, badge, action, children }) => (
   <div className="bg-gray-50 border border-gray-100 p-5 rounded-xl space-y-4">
     <div className="flex items-center justify-between">
@@ -1480,7 +1414,7 @@ const MoneyInput = ({ value, onChange, error }) => (
       min="0"
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className={`w-full border rounded-lg pl-7 pr-3 py-2 text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono transition-colors ${
+      className={`w-full border rounded-lg pl-7 pr-3 py-2 text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono ${
         error ? "border-red-400 bg-red-50" : "border-gray-300 bg-white"
       }`}
       placeholder="0"
