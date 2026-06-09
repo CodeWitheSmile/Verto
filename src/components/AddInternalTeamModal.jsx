@@ -29,6 +29,14 @@ const EMPTY_COST_SHIFT = {
   effective_month: "",
   effective_year: "",
   cost_head_breakup: { ...EMPTY_COST_HEAD },
+  ctc: "",
+  variable: "",
+  pf: "",
+  esi: "",
+  bonus: "",
+  reimbursement: "",
+  other_component: "",
+  client_focus: [{ clientName: "", percentage: "" }],
 };
 
 const MONTH_NAMES = [
@@ -233,6 +241,15 @@ const AddInternalTeamModal = ({
     if (errors.shift_breakup) setErrors((p) => ({ ...p, shift_breakup: "" }));
   };
 
+  const setShiftField = (field, value) => {
+    setFormData((p) => ({
+      ...p,
+      cost_shift: { ...p.cost_shift, [field]: value },
+    }));
+    if (errors[`shift_${field}`])
+      setErrors((p) => ({ ...p, [`shift_${field}`]: "" }));
+  };
+
   const setClientFocus = (index, field, value) => {
     const updated = formData.client_focus.map((c, i) =>
       i === index
@@ -246,6 +263,22 @@ const AddInternalTeamModal = ({
     if (errors.client_focus) setErrors((p) => ({ ...p, client_focus: "" }));
   };
 
+  const setShiftClientFocus = (index, field, value) => {
+    const current = formData.cost_shift.client_focus || [];
+    const updated = current.map((c, i) =>
+      i === index
+        ? {
+            ...c,
+            [field]: field === "percentage" ? parseInt(value) || "" : value,
+          }
+        : c
+    );
+    setFormData((p) => ({
+      ...p,
+      cost_shift: { ...p.cost_shift, client_focus: updated },
+    }));
+  };
+
   const addClient = () =>
     setFormData((p) => ({
       ...p,
@@ -255,6 +288,29 @@ const AddInternalTeamModal = ({
     setFormData((p) => ({
       ...p,
       client_focus: p.client_focus.filter((_, idx) => idx !== i),
+    }));
+
+  const addShiftClient = () =>
+    setFormData((p) => ({
+      ...p,
+      cost_shift: {
+        ...p.cost_shift,
+        client_focus: [
+          ...(p.cost_shift.client_focus || []),
+          { clientName: "", percentage: "" },
+        ],
+      },
+    }));
+
+  const removeShiftClient = (i) =>
+    setFormData((p) => ({
+      ...p,
+      cost_shift: {
+        ...p.cost_shift,
+        client_focus: (p.cost_shift.client_focus || []).filter(
+          (_, idx) => idx !== i
+        ),
+      },
     }));
 
   // ── Totals ────────────────────────────────────────────────────────────────────
@@ -396,6 +452,17 @@ const AddInternalTeamModal = ({
           projects:
             parseInt(formData.cost_shift.cost_head_breakup.projects) || 0,
         },
+        // ✅ Save salary fields too
+        ctc: parseFloat(formData.cost_shift.ctc) || null,
+        variable: parseFloat(formData.cost_shift.variable) || null,
+        pf: parseFloat(formData.cost_shift.pf) || null,
+        esi: parseFloat(formData.cost_shift.esi) || null,
+        bonus: parseFloat(formData.cost_shift.bonus) || null,
+        reimbursement: parseFloat(formData.cost_shift.reimbursement) || null,
+        other_component: parseFloat(formData.cost_shift.other_component) || null,
+        client_focus: (formData.cost_shift.client_focus || []).filter((c) =>
+          c.clientName?.trim()
+        ),
       },
       { onConflict: "employee_id,effective_month,effective_year" }
     );
@@ -979,9 +1046,73 @@ const AddInternalTeamModal = ({
                 editingEmployee?.id ? (
                   <button
                     type="button"
-                    onClick={() =>
-                      set("show_cost_shift", !formData.show_cost_shift)
-                    }
+                    onClick={() => {
+                      if (!formData.show_cost_shift) {
+                        // ✅ Auto-fill from current employee values
+                        const now = new Date();
+                        setFormData((p) => ({
+                          ...p,
+                          show_cost_shift: true,
+                          cost_shift: {
+                            // default to current month/year
+                            effective_month: String(now.getMonth() + 1),
+                            effective_year: String(now.getFullYear()),
+                            // auto-fill all salary from current internal_team values
+                            ctc: String(
+                              editingEmployee?.ctc || p.ctc || ""
+                            ),
+                            variable: String(
+                              editingEmployee?.variable || p.variable || ""
+                            ),
+                            pf: String(
+                              editingEmployee?.pf || p.pf || ""
+                            ),
+                            esi: String(
+                              editingEmployee?.esi || p.esi || ""
+                            ),
+                            bonus: String(
+                              editingEmployee?.bonus || p.bonus || ""
+                            ),
+                            reimbursement: String(
+                              editingEmployee?.reimbursement ||
+                                p.reimbursement ||
+                                ""
+                            ),
+                            other_component: String(
+                              editingEmployee?.other_component ||
+                                p.other_component ||
+                                ""
+                            ),
+                            // auto-fill cost head breakup from current values
+                            cost_head_breakup: {
+                              ops:
+                                editingEmployee?.cost_head_breakup?.ops ??
+                                p.cost_head_breakup.ops,
+                              temp:
+                                editingEmployee?.cost_head_breakup?.temp ??
+                                p.cost_head_breakup.temp,
+                              rec:
+                                editingEmployee?.cost_head_breakup?.rec ??
+                                p.cost_head_breakup.rec,
+                              projects:
+                                editingEmployee?.cost_head_breakup
+                                  ?.projects ?? p.cost_head_breakup.projects,
+                            },
+                            // auto-fill client focus from current values
+                            client_focus: editingEmployee?.client_focus
+                              ?.length
+                              ? editingEmployee.client_focus
+                              : p.client_focus?.filter((c) =>
+                                  c.clientName?.trim()
+                                ) || [
+                                  { clientName: "", percentage: "" },
+                                ],
+                          },
+                        }));
+                      } else {
+                        set("show_cost_shift", false);
+                      }
+                    }}
                     className={`flex items-center space-x-1 px-3 py-1.5 rounded-lg text-xs font-medium ${
                       formData.show_cost_shift
                         ? "bg-gray-200 text-gray-700"
@@ -1043,7 +1174,10 @@ const AddInternalTeamModal = ({
                                 },
                               }));
                               if (errors.shift_month)
-                                setErrors((p) => ({ ...p, shift_month: "" }));
+                                setErrors((p) => ({
+                                  ...p,
+                                  shift_month: "",
+                                }));
                             }}
                             className={`w-full border rounded-lg px-3 py-2 text-sm text-gray-900 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
                               errors.shift_month
@@ -1075,7 +1209,10 @@ const AddInternalTeamModal = ({
                                 },
                               }));
                               if (errors.shift_year)
-                                setErrors((p) => ({ ...p, shift_year: "" }));
+                                setErrors((p) => ({
+                                  ...p,
+                                  shift_year: "",
+                                }));
                             }}
                             className={`w-full border rounded-lg px-3 py-2 text-sm text-gray-900 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
                               errors.shift_year
@@ -1095,6 +1232,128 @@ const AddInternalTeamModal = ({
                           </select>
                         </Field>
                       </div>
+
+                      {/* ✅ Auto-filled salary fields — user edits only what changed */}
+                      <div>
+                        <p className="text-xs font-semibold text-indigo-700 mb-2">
+                          Salary Components (auto-filled — edit only what changed)
+                        </p>
+                        <div className="grid grid-cols-4 gap-3">
+                          {[
+                            {
+                              field: "ctc",
+                              label: "Fixed Salary",
+                            },
+                            { field: "pf", label: "PF" },
+                            { field: "esi", label: "ESI" },
+                            {
+                              field: "variable",
+                              label: "Variable",
+                            },
+                            { field: "bonus", label: "Bonus" },
+                            {
+                              field: "reimbursement",
+                              label: "Reimbursement",
+                            },
+                            {
+                              field: "other_component",
+                              label: "Other Component",
+                            },
+                          ].map(({ field, label }) => (
+                            <div key={field}>
+                              <label className="block text-[10px] font-semibold text-gray-600 mb-1 uppercase tracking-wide">
+                                {label}
+                              </label>
+                              <div className="relative">
+                                <span className="absolute left-2 top-2 text-gray-400 text-xs">
+                                  ₹
+                                </span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={formData.cost_shift[field]}
+                                  onChange={(e) =>
+                                    setShiftField(field, e.target.value)
+                                  }
+                                  className="w-full border border-indigo-200 bg-white rounded-lg pl-5 pr-2 py-1.5 text-xs font-mono font-bold text-indigo-800 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Client Focus in Shift */}
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-semibold text-indigo-700">
+                            Client Focus (auto-filled — edit only what changed)
+                          </p>
+                          <button
+                            type="button"
+                            onClick={addShiftClient}
+                            className="flex items-center space-x-1 px-2 py-1 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 text-[10px] font-medium"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>Add Client</span>
+                          </button>
+                        </div>
+                        <div className="space-y-2">
+                          {(formData.cost_shift.client_focus || []).map(
+                            (client, index) => (
+                              <div
+                                key={index}
+                                className="flex items-center space-x-2"
+                              >
+                                <input
+                                  type="text"
+                                  value={client.clientName}
+                                  onChange={(e) =>
+                                    setShiftClientFocus(
+                                      index,
+                                      "clientName",
+                                      e.target.value
+                                    )
+                                  }
+                                  className="flex-1 border border-indigo-200 rounded-lg px-2 py-1 text-xs text-gray-900 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+                                  placeholder={`Client ${index + 1} name`}
+                                />
+                                <div className="relative w-20">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    value={client.percentage}
+                                    onChange={(e) =>
+                                      setShiftClientFocus(
+                                        index,
+                                        "percentage",
+                                        e.target.value
+                                      )
+                                    }
+                                    className="w-full border border-indigo-200 rounded-lg px-2 py-1 pr-6 text-xs font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-400 text-center bg-white"
+                                    placeholder="0"
+                                  />
+                                  <span className="absolute right-1.5 top-1 text-gray-500 text-[10px] font-semibold">
+                                    %
+                                  </span>
+                                </div>
+                                {(formData.cost_shift.client_focus || [])
+                                  .length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => removeShiftClient(index)}
+                                    className="p-0.5 text-red-500 hover:bg-red-50 rounded"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            )
+                          )}
+                        </div>
+                      </div>
+
                       <div className="flex items-center justify-between">
                         <p className="text-xs text-gray-600">
                           New cost allocation. Must total 100%.
@@ -1193,6 +1452,9 @@ const AddInternalTeamModal = ({
                         <th className="px-3 py-2 text-left border-b border-gray-200">
                           Period
                         </th>
+                        <th className="px-3 py-2 text-right border-b border-gray-200">
+                          CTC
+                        </th>
                         {COST_HEADS.map((h) => (
                           <th
                             key={h.key}
@@ -1224,13 +1486,22 @@ const AddInternalTeamModal = ({
                               {MONTH_NAMES[row.effective_month - 1]}{" "}
                               {row.effective_year}
                             </td>
+                            <td className="px-2 py-2 text-right font-mono font-bold text-emerald-700">
+                              {row.ctc
+                                ? `₹${Number(row.ctc).toLocaleString(
+                                    "en-IN"
+                                  )}`
+                                : "—"}
+                            </td>
                             {COST_HEADS.map((h) => {
                               const v = norm[h.key] || 0;
                               return (
                                 <td
                                   key={h.key}
                                   className={`px-2 py-2 text-center font-mono font-bold ${
-                                    v > 0 ? "text-indigo-700" : "text-gray-300"
+                                    v > 0
+                                      ? "text-indigo-700"
+                                      : "text-gray-300"
                                   }`}
                                 >
                                   {v > 0 ? `${v}%` : "—"}

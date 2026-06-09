@@ -105,8 +105,12 @@ const buildPeriodBuckets = (rawRows, periodDays) => {
     (a, b) => new Date(a.full_date) - new Date(b.full_date)
   );
   const today = new Date();
-  const start = new Date(today.getFullYear(), today.getMonth(), 1);
-  const end = new Date(today.getFullYear(), today.getMonth() + 6, 0);
+  // Start from the earliest row in your data, not today
+  const firstDate = new Date(sorted[0].full_date);
+  const start = new Date(firstDate.getFullYear(), firstDate.getMonth(), 1);
+  // End 6 months after the latest row
+  const lastDate = new Date(sorted[sorted.length - 1].full_date);
+  const end = new Date(lastDate.getFullYear(), lastDate.getMonth() + 1, 0);
 
   const buckets = [];
   let cursor = new Date(start);
