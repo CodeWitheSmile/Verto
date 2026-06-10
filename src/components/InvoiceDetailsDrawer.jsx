@@ -205,21 +205,47 @@ const InvoiceDetailsDrawer = ({ invoice, isOpen, onClose }) => {
                   </p>
                   <div className="space-y-0.5">
                     {[
-                      ["Employee count", details.employee_count],
-                      ["Gross value", formatCurrency(details.gross_value)],
-                      ["Net in hand", formatCurrency(details.net_in_hand)],
-                      ["Co PF", formatCurrency(details.co_pf)],
-                      ["Co ESI", formatCurrency(details.co_esi)],
-                      ["CTC", formatCurrency(details.ctc)],
-                    ].map(([label, val]) => (
+                      ["Employee count", details.employee_count, false],
+                      ["Gross value", formatCurrency(details.gross_value), false],
+                      ["Net in hand", formatCurrency(details.net_in_hand), false],
+                      ["Co PF", formatCurrency(details.co_pf), true],
+                      ["Co ESI", formatCurrency(details.co_esi), true],
+                      ["LWF Tax", formatCurrency(details.lwf_tax), true],
+                      ["PT Tax", formatCurrency(details.pt_tax), true],
+                      ["Other Ded", formatCurrency(details.other_ded), true],
+                      ["CTC", formatCurrency(details.ctc), false],
+                    ].map(([label, val, isCompliance]) => (
                       <div
                         key={label}
                         className="flex justify-between items-center py-2 border-b border-gray-50 last:border-0"
                       >
                         <span className="text-sm text-gray-500">{label}</span>
-                        <span className="text-sm font-medium text-gray-800">{val}</span>
+                        <span className={`text-sm font-medium ${isCompliance ? "text-blue-600" : "text-gray-800"}`}>
+                          {val}
+                        </span>
                       </div>
                     ))}
+                  </div>
+
+                  {/* Total Compliance Payable */}
+                  <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 flex justify-between items-center">
+                    <div>
+                      <p className="text-xs font-bold text-amber-700 uppercase tracking-wider">
+                        Total Compliance Payable
+                      </p>
+                      <p className="text-xs text-amber-500 mt-0.5">
+                        Co PF + Co ESI + LWF + PT + Other Ded
+                      </p>
+                    </div>
+                    <p className="text-base font-bold text-amber-600">
+                      {formatCurrency(
+                        (details.co_pf || 0) +
+                        (details.co_esi || 0) +
+                        (details.lwf_tax || 0) +
+                        (details.pt_tax || 0) +
+                        (details.other_ded || 0)
+                      )}
+                    </p>
                   </div>
                 </div>
               )}

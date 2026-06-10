@@ -20,6 +20,13 @@ import {
 
 // ─── TYPE CONFIG ───────────────────────────────────────────────────────────────
 const TYPE_CONFIG = {
+  "TDS Deducted": {
+    icon: TrendingDown,
+    color: "text-orange-600",
+    bg: "bg-orange-100",
+    badge: "bg-orange-100 text-orange-700",
+    sign: "-",
+  },
   "Payment Received": {
     icon: TrendingDown,
     color: "text-emerald-600",
@@ -75,7 +82,9 @@ const DeleteModal = ({ invoiceId, onConfirm, onCancel, loading }) => (
         You are about to permanently delete:
       </p>
       <div className="bg-red-50 border border-red-100 rounded-xl p-3 mb-4 space-y-1 text-xs text-red-700 font-medium">
-        <p>🧾 Invoice <span className="font-bold">{invoiceId}</span></p>
+        <p>
+          🧾 Invoice <span className="font-bold">{invoiceId}</span>
+        </p>
         <p>💳 All Payments Received & Made</p>
         <p>🔄 Bounce Back entries</p>
         <p>📝 Credit Notes / Bad Debt</p>
@@ -148,7 +157,8 @@ const OSPayoutsSection = ({ osPayouts, netInHand }) => {
     0
   );
   const leftAmount = Math.max(netInHand - totalPaid, 0);
-  const paidPct = netInHand > 0 ? Math.min((totalPaid / netInHand) * 100, 100) : 0;
+  const paidPct =
+    netInHand > 0 ? Math.min((totalPaid / netInHand) * 100, 100) : 0;
 
   return (
     <div className="mt-6 rounded-2xl border-2 border-violet-200 bg-violet-50/40 overflow-hidden">
@@ -166,7 +176,8 @@ const OSPayoutsSection = ({ osPayouts, netInHand }) => {
               3rd Party OS Payouts
             </p>
             <p className="text-xs text-violet-500">
-              {osPayouts.length} payout{osPayouts.length !== 1 ? "s" : ""} · Against Net-in-Hand
+              {osPayouts.length} payout{osPayouts.length !== 1 ? "s" : ""} ·
+              Against Net-in-Hand
             </p>
           </div>
         </div>
@@ -314,9 +325,7 @@ const OSPayoutsSection = ({ osPayouts, netInHand }) => {
                 leftAmount <= 0 ? "text-emerald-700" : "text-violet-800"
               }`}
             >
-              {leftAmount <= 0
-                ? "✅ Fully Disbursed"
-                : "Remaining to Disburse"}
+              {leftAmount <= 0 ? "✅ Fully Disbursed" : "Remaining to Disburse"}
             </span>
             <span
               className={`font-bold text-base ${
@@ -345,7 +354,7 @@ const LedgerPage = () => {
   const [isCompleted, setIsCompleted] = useState(false);
   const [netInHand, setNetInHand] = useState(0);
   const [osPayouts, setOsPayouts] = useState([]);
-
+  const [invoiceTds, setInvoiceTds] = useState(0);
   // ── Get invoice from global state ──
   useEffect(() => {
     setInvoice(window.ledgerInvoice || null);
@@ -361,7 +370,9 @@ const LedgerPage = () => {
     try {
       const { data: inv, error: invErr } = await supabase
         .from("invoices")
-        .select(`id, invoice_value, receivable_amount, invoice_number, is_completed, net_in_hand`)
+        .select(
+          `id, invoice_value, receivable_amount, invoice_number, is_completed, net_in_hand, tds`
+        )
         .eq("id", invoice.dbId)
         .single();
 
@@ -373,6 +384,7 @@ const LedgerPage = () => {
       setOpening(inv.invoice_value);
       setNetInHand(Number(inv.net_in_hand || 0));
       setIsCompleted(inv.is_completed || false);
+      setInvoiceTds(Number(inv.tds || 0));
 
       const [
         { data: payments },
@@ -483,6 +495,20 @@ const LedgerPage = () => {
         })
       );
 
+      // Inject TDS deduction as a ledger row (reduces outstanding like a payment)
+      if (Number(inv.tds || 0) > 0) {
+        rows.push({
+          type: "TDS Deducted",
+          amount: -Number(inv.tds),
+          date: inv.invoice_date || rows[0]?.date || new Date().toISOString(),
+          ref: null,
+          remarks: `TDS deducted at source — ₹${Number(inv.tds).toLocaleString(
+            "en-IN"
+          )}`,
+          isTds: true,
+        });
+      }
+
       rows.sort((a, b) => new Date(a.date) - new Date(b.date));
 
       let balance = inv.invoice_value;
@@ -511,7 +537,11 @@ const LedgerPage = () => {
       setIsCompleted(!isCompleted);
       await fetchLedger();
       if (window.refreshDashboard) await window.refreshDashboard();
-      alert(isCompleted ? "Invoice moved back to active." : "Invoice marked completed.");
+      alert(
+        isCompleted
+          ? "Invoice moved back to active."
+          : "Invoice marked completed."
+      );
     } catch (err) {
       console.error(err);
       alert(err.message);
@@ -607,7 +637,11 @@ const LedgerPage = () => {
             }`}
           >
             <CheckCircle2 className="w-4 h-4" />
-            {completeLoading ? "Updating..." : isCompleted ? "Move To Active" : "Mark Complete"}
+            {completeLoading
+              ? "Updating..."
+              : isCompleted
+              ? "Move To Active"
+              : "Mark Complete"}
           </button>
 
           <button
@@ -631,7 +665,11 @@ const LedgerPage = () => {
       </div>
 
       {/* ── Summary Cards ── */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
+      <div
+        className={`grid gap-4 mb-6 ${
+          invoiceTds > 0 ? "grid-cols-3" : "grid-cols-2"
+        }`}
+      >
         <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
           <p className="text-xs text-blue-600 font-semibold uppercase tracking-wider mb-1">
             Opening Balance
@@ -639,6 +677,20 @@ const LedgerPage = () => {
           <p className="text-2xl font-bold text-blue-700">{fmt(opening)}</p>
           <p className="text-xs text-blue-400 mt-1">Invoice value (original)</p>
         </div>
+
+        {invoiceTds > 0 && (
+          <div className="bg-orange-50 border border-orange-100 rounded-2xl p-4">
+            <p className="text-xs text-orange-600 font-semibold uppercase tracking-wider mb-1">
+              TDS Deducted
+            </p>
+            <p className="text-2xl font-bold text-orange-700">
+              − {fmt(invoiceTds)}
+            </p>
+            <p className="text-xs text-orange-400 mt-1">
+              Deducted at source by client
+            </p>
+          </div>
+        )}
 
         <div
           className={`rounded-2xl p-4 border ${
@@ -678,7 +730,9 @@ const LedgerPage = () => {
             <p className="text-xs text-violet-600 font-semibold uppercase tracking-wider mb-1">
               Net in Hand
             </p>
-            <p className="text-lg font-bold text-violet-700">{fmt(netInHand)}</p>
+            <p className="text-lg font-bold text-violet-700">
+              {fmt(netInHand)}
+            </p>
             <p className="text-xs text-violet-400 mt-0.5">Total to disburse</p>
           </div>
           <div className="bg-rose-50 border border-rose-100 rounded-2xl p-3 text-center">
@@ -828,7 +882,9 @@ const LedgerPage = () => {
         <div className="text-center py-16 text-gray-400 bg-gray-50 rounded-2xl">
           <AlertCircle className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p className="font-medium">No transactions found</p>
-          <p className="text-sm mt-1">Payments and adjustments will appear here</p>
+          <p className="text-sm mt-1">
+            Payments and adjustments will appear here
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -849,7 +905,9 @@ const LedgerPage = () => {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cfg.badge}`}>
+                      <span
+                        className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cfg.badge}`}
+                      >
                         {row.type}
                       </span>
                       {row.isBillable && (
@@ -924,7 +982,9 @@ const LedgerPage = () => {
                       {fmt(Math.max(row.balance, 0))}
                     </p>
                     {row.balance < 0 && (
-                      <p className="text-xs text-emerald-500 mt-0.5">Overpaid</p>
+                      <p className="text-xs text-emerald-500 mt-0.5">
+                        Overpaid
+                      </p>
                     )}
                   </div>
                 </div>
@@ -971,6 +1031,12 @@ const LedgerPage = () => {
                 )}
               </p>
             </div>
+            {invoiceTds > 0 && (
+              <div>
+                <p className="text-xs text-gray-500 mb-1">TDS Deducted</p>
+                <p className="font-bold text-orange-600">− {fmt(invoiceTds)}</p>
+              </div>
+            )}
           </div>
         </div>
       )}
