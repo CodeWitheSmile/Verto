@@ -10,7 +10,7 @@ import AddInvoiceModal from "./AddInvoiceModal";
 import AddCNBadDebtModal from "./AddCNBadDebtModal";
 import BounceHistoryDrawer from "./BounceHistoryDrawer";
 import CNHistoryDrawer from "./CNHistoryDrawer";
-import PaymentMadeHistoryDrawer from "./PaymentHistoryDrawer";
+import PaymentMadeHistoryDrawer from "./PaymentMadeHistoryDrawer";
 import {
   Search,
   Calendar,
@@ -368,76 +368,6 @@ const dashboardStyles = `
   .pagination-btn.active-emerald { background: var(--c-emerald-light); color: var(--c-emerald); border-color: var(--c-emerald-mid); }
 `;
 
-// ─── Mock Data Generator ─────────────────────────────────────────────────────
-const generateData = (count = 10) => {
-  const departments = ["Operations", "Sales", "Finance", "HR", "IT"];
-  const clients = [
-    "Acme Corp",
-    "Globex",
-    "Soylent",
-    "Initech",
-    "Umbrella",
-    "Massive",
-    "Stark Ind",
-    "Wayne Ent",
-  ];
-  const entities = ["Verto India Pvt Ltd", "Verto Global LLC", "Verto UK Ltd"];
-
-  return Array.from({ length: count }).map((_, i) => {
-    const invValue = Math.floor(15000 + Math.random() * 50000);
-    const vertoFee = Math.floor(invValue * 0.08);
-    const received =
-      Math.random() > 0.3
-        ? Math.floor(invValue * (0.5 + Math.random() * 0.5))
-        : 0;
-    const notRecvd = invValue - received;
-    const delayDays = notRecvd > 0 ? Math.floor(Math.random() * 45) : 0;
-    const randomDate = new Date(
-      2023,
-      Math.floor(Math.random() * 12),
-      Math.floor(Math.random() * 28) + 1
-    );
-
-    return {
-      id: `INV-${2023000 + i}`,
-      invDate: randomDate.toLocaleDateString("en-GB"),
-      invDateObj: randomDate,
-      impactMonth:
-        [
-          "Jan",
-          "Feb",
-          "Mar",
-          "Apr",
-          "May",
-          "Jun",
-          "Jul",
-          "Aug",
-          "Sep",
-          "Oct",
-          "Nov",
-          "Dec",
-        ][Math.floor(Math.random() * 12)] + " 2023",
-      dept: departments[Math.floor(Math.random() * departments.length)],
-      client: clients[Math.floor(Math.random() * clients.length)],
-      invValue,
-      vertoFee,
-      notRecvd,
-      delayDays,
-      osDiff: Math.floor(Math.random() * 1000) - 200,
-      cnBadDebt: Math.random() > 0.9 ? Math.floor(Math.random() * 5000) : 0,
-      entity: entities[Math.floor(Math.random() * entities.length)],
-      status:
-        notRecvd === 0
-          ? "paid"
-          : delayDays > 30
-          ? "overdue"
-          : delayDays > 0
-          ? "pending"
-          : "fresh",
-    };
-  });
-};
-
 // ─── Dashboard Component ─────────────────────────────────────────────────────
 const Dashboard = ({
   refreshFlag,
@@ -451,7 +381,7 @@ const Dashboard = ({
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [data] = useState(() => generateData(12));
+  // ✅ FIX 5: Removed mock data fallback — dbData starts empty
   const [dbData, setDbData] = useState([]);
   const [banks, setBanks] = useState([]);
   const [showPaymentHistory, setShowPaymentHistory] = useState(false);
@@ -487,9 +417,9 @@ const Dashboard = ({
   };
   const [selectedFY, setSelectedFY] = useState(getCurrentFY);
 
-  const fyStart = (fy) => new Date(fy, 3, 1);        // Apr 1
-  const fyEnd   = (fy) => new Date(fy + 1, 2, 31, 23, 59, 59); // Mar 31
-  const fyLabel = (fy) => `FY ${String(fy).slice(2)}-${String(fy + 1).slice(2)}`; // FY 25-26
+  const fyStart = (fy) => new Date(fy, 3, 1);
+  const fyEnd   = (fy) => new Date(fy + 1, 2, 31, 23, 59, 59);
+  const fyLabel = (fy) => `FY ${String(fy).slice(2)}-${String(fy + 1).slice(2)}`;
 
   const fetchInvoices = useCallback(async () => {
     console.log("🔥 FETCH RUNNING...");
@@ -570,9 +500,10 @@ const Dashboard = ({
     setDbData(formatted);
   }, []);
 
+  // ✅ FIX 6: fetchBanks null-safe with || []
   const fetchBanks = useCallback(async () => {
     const { data, error } = await supabase.from("bank_master").select("*");
-    if (!error) setBanks(data);
+    if (!error) setBanks(data || []);
   }, []);
 
   React.useEffect(() => {
@@ -635,13 +566,14 @@ const Dashboard = ({
     };
   }, [fetchInvoices]);
 
-  const source = dbData.length ? dbData : data;
-  const departments = [...new Set(source.map((d) => d.dept))];
-  const clients = [...new Set(source.map((d) => d.client))];
-  const entities = [...new Set(source.map((d) => d.entity).filter(Boolean))];
+  // ✅ FIX 5: Removed mock data fallback — source = dbData only
+  const departments = [...new Set(dbData.map((d) => d.dept).filter(Boolean))];
+  const clients = [...new Set(dbData.map((d) => d.client).filter(Boolean))];
+  const entities = [...new Set(dbData.map((d) => d.entity).filter(Boolean))];
 
+  // ✅ FIX 5: Removed mock data fallback — sourceData = dbData only
   const filteredData = useMemo(() => {
-    let sourceData = dbData.length > 0 ? dbData : data;
+    let sourceData = dbData;
 
     sourceData = sourceData.filter((row) =>
       showCompleted ? Boolean(row.is_completed) : !Boolean(row.is_completed)
@@ -710,7 +642,6 @@ const Dashboard = ({
 
     return filtered;
   }, [
-    data,
     dbData,
     searchTerm,
     dateFrom,
@@ -876,7 +807,6 @@ const Dashboard = ({
           </div>
           <div className="stat-label">Total Invoiced</div>
           <div className="stat-value">₹{formatCurrency(totals.invValue)}</div>
-          {/* ✅ FIXED: Replaced hardcoded "+12% from last period" with real invoice count */}
           <div className="stat-meta" style={{ color: "#6b7280" }}>
             <span>{filteredData.length} invoices</span>
           </div>
@@ -895,7 +825,6 @@ const Dashboard = ({
           <div className="stat-value" style={{ color: "#059669" }}>
             ₹{formatCurrency(totals.vertoFee)}
           </div>
-          {/* ✅ FIXED: Label changed to "% of invoice value" and precision to 2 decimal places */}
           <div className="stat-meta" style={{ color: "#6b7280" }}>
             <span>
               {totals.invValue
@@ -919,7 +848,6 @@ const Dashboard = ({
           <div className="stat-value" style={{ color: "#e11d48" }}>
             ₹{formatCurrency(totals.notRecvd)}
           </div>
-          {/* ✅ FIXED: Label changed to "% of invoiced" and precision to 2 decimal places */}
           <div className="stat-meta" style={{ color: "#e11d48" }}>
             <ArrowDownLeft size={13} />
             <span>
@@ -944,7 +872,6 @@ const Dashboard = ({
           <div className="stat-value" style={{ color: "#d97706" }}>
             ₹{formatCurrency(totals.cnBadDebt)}
           </div>
-          {/* Already real data — no change needed */}
           <div className="stat-meta" style={{ color: "#6b7280" }}>
             <span>
               {filteredData.filter((d) => d.cnBadDebt > 0).length} invoices
@@ -1787,6 +1714,8 @@ const Dashboard = ({
               ))}
             </tbody>
 
+            {/* ✅ FIX 1: Wrap totals row in <tfoot> */}
+            <tfoot>
             <tr className="align-bottom">
               <td
                 colSpan="4"
@@ -1866,6 +1795,7 @@ const Dashboard = ({
               </td>
               <td colSpan="3" />
             </tr>
+            </tfoot>
           </table>
         </div>
 
