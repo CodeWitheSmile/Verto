@@ -136,26 +136,20 @@ const OSPayoutsSection = ({ osPayouts, netInHand }) => {
 
   if (!osPayouts || osPayouts.length === 0) return null;
 
-  // Build running balance from net_in_hand
+  // CHANGE 1: Build running balance — now deducts bounce_back_amount correctly
   let balance = netInHand;
   const rows = osPayouts.map((p) => {
+    const bbAmt = Number(p.bounce_back_amount || 0);
     const netPaid = Math.max(
-      Number(p.amount_paid || 0) - Number(p.income_tax_deducted || 0),
+      Number(p.amount_paid || 0) - bbAmt - Number(p.income_tax_deducted || 0),
       0
     );
     balance -= netPaid;
-    return { ...p, netPaid, runningBalance: balance };
+    return { ...p, bbAmt, netPaid, runningBalance: balance };
   });
 
-  const totalPaid = osPayouts.reduce(
-    (s, p) =>
-      s +
-      Math.max(
-        Number(p.amount_paid || 0) - Number(p.income_tax_deducted || 0),
-        0
-      ),
-    0
-  );
+  // CHANGE 1: totalPaid now uses rows with BB deduction
+  const totalPaid = rows.reduce((s, r) => s + r.netPaid, 0);
   const leftAmount = Math.max(netInHand - totalPaid, 0);
   const paidPct =
     netInHand > 0 ? Math.min((totalPaid / netInHand) * 100, 100) : 0;
@@ -260,18 +254,29 @@ const OSPayoutsSection = ({ osPayouts, netInHand }) => {
                         TDS: {fmt(row.income_tax_deducted)}
                       </span>
                     )}
+                    {row.bbAmt > 0 && (
+                      <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+                        ↩ BB: {fmt(row.bbAmt)}
+                      </span>
+                    )}
                   </div>
 
+                  {/* CHANGE 2: Updated payout row display — shows BB as green credit */}
                   <p className="text-base font-bold text-rose-600">
                     − {fmt(row.netPaid)}
                   </p>
 
-                  {row.income_tax_deducted > 0 && (
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      Gross: {fmt(row.amount_paid)} − TDS:{" "}
-                      {fmt(row.income_tax_deducted)}
-                    </p>
-                  )}
+                  <div className="text-xs text-gray-400 mt-0.5 space-y-0.5">
+                    <p>Gross Paid: {fmt(row.amount_paid)}</p>
+                    {row.bbAmt > 0 && (
+                      <p className="text-emerald-600 font-medium">
+                        ↩ Bounce Back: +{fmt(row.bbAmt)}
+                      </p>
+                    )}
+                    {row.income_tax_deducted > 0 && (
+                      <p>TDS: −{fmt(row.income_tax_deducted)}</p>
+                    )}
+                  </div>
 
                   <div className="flex flex-wrap items-center gap-3 mt-1.5">
                     <span className="text-xs text-gray-400 flex items-center gap-1">
@@ -355,6 +360,7 @@ const LedgerPage = () => {
   const [netInHand, setNetInHand] = useState(0);
   const [osPayouts, setOsPayouts] = useState([]);
   const [invoiceTds, setInvoiceTds] = useState(0);
+
   // ── Get invoice from global state ──
   useEffect(() => {
     setInvoice(window.ledgerInvoice || null);
@@ -454,10 +460,14 @@ const LedgerPage = () => {
       });
 
       // NOTE: OS Payouts are shown in their own dedicated section below,
-      // but billable ones still affect the invoice outstanding balance
+      // but billable ones still affect the invoice outstanding balance.
+      // Now correctly deducts bounce_back_amount when calculating netAmount.
       osPayoutsData?.forEach((p) => {
+        const bbAmt = Number(p.bounce_back_amount || 0);
         const netAmount =
-          Number(p.amount_paid || 0) - Number(p.income_tax_deducted || 0);
+          Number(p.amount_paid || 0) -
+          bbAmt -
+          Number(p.income_tax_deducted || 0);
         if (p.is_billable) {
           rows.push({
             type: "Billable Expense",
@@ -469,6 +479,7 @@ const LedgerPage = () => {
             expenseHead: p.pay_head,
             isBillable: true,
             isOsPayout: true,
+            bbAmt, // store for display if needed
           });
         }
         // Non-billable OS payouts do NOT appear in invoice ledger
@@ -524,6 +535,21 @@ const LedgerPage = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // ── Helper: Calculate OS paid total with bounce back deduction ──
+  const getOsPaidTotal = () => {
+    return osPayouts.reduce(
+      (s, p) =>
+        s +
+        Math.max(
+          Number(p.amount_paid || 0) -
+            Number(p.bounce_back_amount || 0) -
+            Number(p.income_tax_deducted || 0),
+          0
+        ),
+      0
+    );
   };
 
   // ── COMPLETE/UNCOMPLETE INVOICE ─────────────────────────────────────────────
@@ -596,6 +622,10 @@ const LedgerPage = () => {
   };
 
   if (!invoice) return null;
+
+  // CHANGE 3: Pre-calculate OS Paid Total with BB deduction (used in summary cards)
+  const osPaidTotal = getOsPaidTotal();
+  const leftToPay = Math.max(netInHand - osPaidTotal, 0);
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
@@ -740,118 +770,36 @@ const LedgerPage = () => {
               OS Paid Out
             </p>
             <p className="text-lg font-bold text-rose-700">
-              {fmt(
-                osPayouts.reduce(
-                  (s, p) =>
-                    s +
-                    Math.max(
-                      Number(p.amount_paid || 0) -
-                        Number(p.income_tax_deducted || 0),
-                      0
-                    ),
-                  0
-                )
-              )}
+              {/* CHANGE 3: Uses helper with BB deduction */}
+              {fmt(osPaidTotal)}
             </p>
             <p className="text-xs text-rose-400 mt-0.5">3rd party paid</p>
           </div>
           <div
             className={`rounded-2xl p-3 text-center border ${
-              Math.max(
-                netInHand -
-                  osPayouts.reduce(
-                    (s, p) =>
-                      s +
-                      Math.max(
-                        Number(p.amount_paid || 0) -
-                          Number(p.income_tax_deducted || 0),
-                        0
-                      ),
-                    0
-                  ),
-                0
-              ) === 0
+              leftToPay === 0
                 ? "bg-emerald-50 border-emerald-100"
                 : "bg-amber-50 border-amber-100"
             }`}
           >
             <p
               className={`text-xs font-semibold uppercase tracking-wider mb-1 ${
-                Math.max(
-                  netInHand -
-                    osPayouts.reduce(
-                      (s, p) =>
-                        s +
-                        Math.max(
-                          Number(p.amount_paid || 0) -
-                            Number(p.income_tax_deducted || 0),
-                          0
-                        ),
-                      0
-                    ),
-                  0
-                ) === 0
-                  ? "text-emerald-600"
-                  : "text-amber-600"
+                leftToPay === 0 ? "text-emerald-600" : "text-amber-600"
               }`}
             >
               Left to Pay
             </p>
             <p
               className={`text-lg font-bold ${
-                Math.max(
-                  netInHand -
-                    osPayouts.reduce(
-                      (s, p) =>
-                        s +
-                        Math.max(
-                          Number(p.amount_paid || 0) -
-                            Number(p.income_tax_deducted || 0),
-                          0
-                        ),
-                      0
-                    ),
-                  0
-                ) === 0
-                  ? "text-emerald-700"
-                  : "text-amber-700"
+                leftToPay === 0 ? "text-emerald-700" : "text-amber-700"
               }`}
             >
-              {fmt(
-                Math.max(
-                  netInHand -
-                    osPayouts.reduce(
-                      (s, p) =>
-                        s +
-                        Math.max(
-                          Number(p.amount_paid || 0) -
-                            Number(p.income_tax_deducted || 0),
-                          0
-                        ),
-                      0
-                    ),
-                  0
-                )
-              )}
+              {/* CHANGE 3: Uses helper with BB deduction */}
+              {fmt(leftToPay)}
             </p>
             <p
               className={`text-xs mt-0.5 ${
-                Math.max(
-                  netInHand -
-                    osPayouts.reduce(
-                      (s, p) =>
-                        s +
-                        Math.max(
-                          Number(p.amount_paid || 0) -
-                            Number(p.income_tax_deducted || 0),
-                          0
-                        ),
-                      0
-                    ),
-                  0
-                ) === 0
-                  ? "text-emerald-400"
-                  : "text-amber-400"
+                leftToPay === 0 ? "text-emerald-400" : "text-amber-400"
               }`}
             >
               Pending disbursal
@@ -918,6 +866,11 @@ const LedgerPage = () => {
                       {row.isOsPayout && (
                         <span className="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">
                           OS Payout
+                        </span>
+                      )}
+                      {row.bbAmt > 0 && (
+                        <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+                          ↩ BB
                         </span>
                       )}
                     </div>

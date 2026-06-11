@@ -333,8 +333,20 @@ const StatutoryRecordsPanel = ({ onClose }) => {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap mb-1.5">
                     <span className="font-black text-gray-900 text-sm">
-                      {row.type}
+                      {row.display_type || row.type}
                     </span>
+                    {row.type === "TDS" &&
+                      row.tds_direction === "receivable" && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          ↓ Inflow
+                        </span>
+                      )}
+                    {row.type === "TDS" &&
+                      row.tds_direction !== "receivable" && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+                          ↑ Outflow
+                        </span>
+                      )}
                     <span
                       className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                         row.calculated_status === "paid"
@@ -598,10 +610,13 @@ const AddStatutoryPayoutModal = ({
   entities = [],
   banks = [],
 }) => {
+  // Change 2: Added rpc_type to formData
   const [formData, setFormData] = useState({
     entity: "",
     bank_id: "",
     statutoryPayoutType: "GST",
+    tds_direction: null,
+    rpc_type: "GST",
     forTheMonth: "",
     totalDue: "",
     totalPaid: "",
@@ -623,31 +638,36 @@ const AddStatutoryPayoutModal = ({
   const [loading, setLoading] = useState(false);
   const [viewOpen, setViewOpen] = useState(false);
 
+  // Change 1: Updated statutoryTypes with rpc_type
   const statutoryTypes = [
-    { value: "GST", label: "GST" },
-    { value: "TDS", label: "TDS" },
-    { value: "EPF", label: "EPF" },
-    { value: "ESI", label: "ESI" },
-    { value: "LWF", label: "LWF" },
-    { value: "PF", label: "PF" },
-    { value: "Income Tax", label: "Income Tax" },
-    { value: "Others", label: "Others" },
+    { value: "GST",            label: "GST",                              tds_direction: null,         rpc_type: "GST" },
+    { value: "TDS",            label: "TDS Payout — We Pay Govt",         tds_direction: "payout",     rpc_type: "TDS" },
+    { value: "TDS Receivable", label: "TDS Receivable — Client Deducted", tds_direction: "receivable", rpc_type: "TDS RECEIVABLE" },
+    { value: "EPF",            label: "EPF",                              tds_direction: null,         rpc_type: "EPF" },
+    { value: "ESI",            label: "ESI",                              tds_direction: null,         rpc_type: "ESI" },
+    { value: "LWF",            label: "LWF",                              tds_direction: null,         rpc_type: "LWF" },
+    { value: "PF",             label: "PF",                               tds_direction: null,         rpc_type: "PF" },
+    { value: "Income Tax",     label: "Income Tax",                       tds_direction: null,         rpc_type: "INCOME TAX" },
+    { value: "Others",         label: "Others",                           tds_direction: null,         rpc_type: null },
   ];
 
-  const fetchAutoDue = async (entity, month, type) => {
+  // Change 3: Updated fetchAutoDue to use rpc_type
+  const fetchAutoDue = async (entity, month, type, rpcType) => {
     if (!entity || !month || !type) return;
+    if (!rpcType) {
+      // Others — no auto-calc
+      setFormData((prev) => ({ ...prev, totalDue: "" }));
+      return;
+    }
 
     console.log("🔥 FETCH RUNNING...");
-    console.log(entity, month, type);
+    console.log(entity, month, type, rpcType);
 
-    const { data, error } = await supabase.rpc(
-      "get_statutory_due",
-      {
-        selected_entity: entity,
-        selected_month: `${month}-01`,
-        selected_type: type,
-      }
-    );
+    const { data, error } = await supabase.rpc("get_statutory_due", {
+      selected_entity: entity,
+      selected_month: `${month}-01`,
+      selected_type: rpcType,   // ← use rpc_type not display type
+    });
 
     console.log("RPC DATA:", data);
     console.log("RPC ERROR:", error);
@@ -690,6 +710,7 @@ const AddStatutoryPayoutModal = ({
     }));
   }, [formData.totalDue, formData.totalPaid]);
 
+  // Change 4: Updated useEffect to pass rpc_type
   useEffect(() => {
     if (
       formData.entity &&
@@ -699,13 +720,15 @@ const AddStatutoryPayoutModal = ({
       fetchAutoDue(
         formData.entity,
         formData.forTheMonth,
-        formData.statutoryPayoutType
+        formData.statutoryPayoutType,
+        formData.rpc_type
       );
     }
   }, [
     formData.entity,
     formData.forTheMonth,
     formData.statutoryPayoutType,
+    formData.rpc_type,
   ]);
 
   const calculateTotalPercentage = () =>
@@ -758,7 +781,9 @@ const AddStatutoryPayoutModal = ({
           bank_id: formData.bank_id,
           month,
           payment_date: formData.payment_date,
-          type: formData.statutoryPayoutType,
+          // Change 7: Store canonical type in DB
+          type: formData.statutoryPayoutType === "TDS Receivable" ? "TDS" : formData.statutoryPayoutType,
+          tds_direction: formData.tds_direction,
 
           // full liability for that month
           total_due: Number(formData.totalDue),
@@ -808,6 +833,8 @@ const AddStatutoryPayoutModal = ({
       entity: "",
       bank_id: "",
       statutoryPayoutType: "GST",
+      tds_direction: null,
+      rpc_type: "GST",
       forTheMonth: "",
       totalDue: "",
       totalPaid: "",
@@ -930,17 +957,29 @@ const AddStatutoryPayoutModal = ({
                       showErrors={showErrors}
                       hint="GST / TDS / EPF / ESI / LWF / PF / Income Tax / Others"
                     >
+                      {/* Change 6: Simplified select value and Change 5: Updated onChange */}
                       <select
                         value={formData.statutoryPayoutType}
-                        onChange={(e) =>
-                          handleChange("statutoryPayoutType", e.target.value)
-                        }
+                        onChange={(e) => {
+                          const selected = statutoryTypes.find((t) => t.value === e.target.value);
+                          if (selected) {
+                            setFormData((prev) => ({
+                              ...prev,
+                              statutoryPayoutType: selected.value,
+                              tds_direction: selected.tds_direction,
+                              rpc_type: selected.rpc_type,
+                              totalDue: "", // reset when type changes
+                            }));
+                            if (errors.statutoryPayoutType)
+                              setErrors((prev) => ({ ...prev, statutoryPayoutType: "" }));
+                          }
+                        }}
                         className={selCls(
                           showErrors && errors.statutoryPayoutType
                         )}
                       >
-                        {statutoryTypes.map((t) => (
-                          <option key={t.value} value={t.value}>
+                        {statutoryTypes.map((t, i) => (
+                          <option key={i} value={t.value}>
                             {t.label}
                           </option>
                         ))}

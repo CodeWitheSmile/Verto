@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import ReactDOM from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import * as XLSX from "xlsx";
 import {
   X,
   Plus,
@@ -13,6 +14,9 @@ import {
   CheckCircle2,
   Loader2,
   History,
+  Upload,
+  Download,
+  FileSpreadsheet,
 } from "lucide-react";
 import supabase from "../lib/supabaseClient";
 
@@ -82,13 +86,73 @@ const EMPTY_FORM = {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-// Normalise any incoming cost_head_breakup to 4 keys only
 const normaliseCostHead = (raw) => ({
   ops: Number(raw?.ops || raw?.OS || 0),
   temp: Number(raw?.temp || 0),
   rec: Number(raw?.rec || 0),
   projects: Number(raw?.projects || 0),
 });
+
+// ─── Download Template ────────────────────────────────────────────────────────
+const downloadTemplate = () => {
+  const TEMPLATE_COLUMNS = [
+    "emp_code",
+    "name",
+    "father_name",
+    "entity",
+    "department",
+    "designation",
+    "location",
+    "email",
+    "dob",
+    "doj",
+    "last_working_day",
+    "status",
+    "ctc",
+    "pf",
+    "esi",
+    "bonus",
+    "variable",
+    "other_component",
+    "reimbursement",
+    "gross_value",
+    "ops",
+    "temp",
+    "rec",
+    "projects",
+  ];
+  const sampleRow = {
+    emp_code: "EMP001",
+    name: "John Doe",
+    father_name: "James Doe",
+    entity: "Verto India Pvt Ltd",
+    department: "OS",
+    designation: "Manager",
+    location: "Mumbai",
+    email: "john@example.com",
+    dob: "1990-01-15",
+    doj: "2023-04-01",
+    last_working_day: "",
+    status: "Active",
+    ctc: 50000,
+    pf: 1800,
+    esi: 0,
+    bonus: 5000,
+    variable: 10000,
+    other_component: 0,
+    reimbursement: 2000,
+    gross_value: 68800,
+    ops: 100,
+    temp: 0,
+    rec: 0,
+    projects: 0,
+  };
+  const ws = XLSX.utils.json_to_sheet([sampleRow], { header: TEMPLATE_COLUMNS });
+  ws["!cols"] = TEMPLATE_COLUMNS.map(() => ({ wch: 18 }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Internal Team");
+  XLSX.writeFile(wb, "internal_team_template.xlsx");
+};
 
 const AddInternalTeamModal = ({
   isOpen,
@@ -111,6 +175,15 @@ const AddInternalTeamModal = ({
   const [shiftSaving, setShiftSaving] = useState(false);
   const [shiftSuccess, setShiftSuccess] = useState(false);
   const [grossManuallyEdited, setGrossManuallyEdited] = useState(false);
+
+  // Bulk Upload states
+  const [bulkFile, setBulkFile] = useState(null);
+  const [bulkParsed, setBulkParsed] = useState(null);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
+  const [bulkStep, setBulkStep] = useState("idle");
+  const [showBulkSection, setShowBulkSection] = useState(false);
+  const bulkFileRef = useRef(null);
 
   // ── Auto gross ───────────────────────────────────────────────────────────────
   const calculatedGrossValue = (
@@ -178,7 +251,6 @@ const AddInternalTeamModal = ({
         other_component: String(editingEmployee.other_component || ""),
         reimbursement: String(editingEmployee.reimbursement || ""),
         gross_value: String(editingEmployee.gross_value || ""),
-        // normalise so any old 9-key data still loads correctly
         cost_head_breakup: normaliseCostHead(editingEmployee.cost_head_breakup),
         client_focus: editingEmployee.client_focus?.length
           ? editingEmployee.client_focus
@@ -196,6 +268,12 @@ const AddInternalTeamModal = ({
     setShiftSuccess(false);
     setShowDeleteConfirm(false);
     setGrossManuallyEdited(false);
+    // Reset bulk upload
+    setBulkFile(null);
+    setBulkParsed(null);
+    setBulkResult(null);
+    setBulkStep("idle");
+    setShowBulkSection(false);
   }, [editingEmployee, isOpen]);
 
   // ── Auto gross update ────────────────────────────────────────────────────────
@@ -375,7 +453,6 @@ const AddInternalTeamModal = ({
       other_component: parseFloat(formData.other_component) || 0,
       reimbursement: parseFloat(formData.reimbursement) || 0,
       gross_value: parseFloat(formData.gross_value || 0),
-      // Always save exactly 4 keys
       cost_head_breakup: {
         ops: parseInt(formData.cost_head_breakup.ops) || 0,
         temp: parseInt(formData.cost_head_breakup.temp) || 0,
@@ -386,7 +463,6 @@ const AddInternalTeamModal = ({
     };
 
     try {
-      // Check emp_code uniqueness (skip self when editing)
       const { data: existing } = await supabase
         .from("internal_team")
         .select("id")
@@ -452,7 +528,6 @@ const AddInternalTeamModal = ({
           projects:
             parseInt(formData.cost_shift.cost_head_breakup.projects) || 0,
         },
-        // ✅ Save salary fields too
         ctc: parseFloat(formData.cost_shift.ctc) || null,
         variable: parseFloat(formData.cost_shift.variable) || null,
         pf: parseFloat(formData.cost_shift.pf) || null,
@@ -506,6 +581,167 @@ const AddInternalTeamModal = ({
     } finally {
       setDeleting(false);
     }
+  };
+
+  // ─── Bulk Upload helpers ──────────────────────────────────────────────────────
+  const REQUIRED_BULK = [
+    "emp_code",
+    "name",
+    "entity",
+    "department",
+    "designation",
+    "ctc",
+    "doj",
+  ];
+  const ENTITY_OPTIONS = [
+    "Verto India Pvt Ltd",
+    "Verto Global LLC",
+    "Verto UK Ltd",
+  ];
+  const DEPT_OPTIONS = [
+    "Common",
+    "OS",
+    "Temp",
+    "Rec",
+    "BD",
+    "Accts",
+    "HR",
+    "Admin",
+    "IT",
+    "Projects",
+    "Others",
+  ];
+
+  const parseRows = (rawRows) => {
+    const valid = [];
+    const errors = [];
+    rawRows.forEach((raw, idx) => {
+      const rowNum = idx + 2;
+      const rowErrors = [];
+      const str = (k) => String(raw[k] || "").trim();
+      const num = (k) => {
+        const v = parseFloat(str(k));
+        return isNaN(v) ? 0 : v;
+      };
+      const intV = (k) => {
+        const v = parseInt(str(k));
+        return isNaN(v) ? 0 : v;
+      };
+
+      REQUIRED_BULK.forEach((f) => {
+        if (!str(f)) rowErrors.push(`"${f}" is required`);
+      });
+      if (str("entity") && !ENTITY_OPTIONS.includes(str("entity")))
+        rowErrors.push(`Invalid entity: "${str("entity")}"`);
+      if (str("department") && !DEPT_OPTIONS.includes(str("department")))
+        rowErrors.push(`Invalid department: "${str("department")}"`);
+
+      const ops = intV("ops");
+      const temp = intV("temp");
+      const rec = intV("rec");
+      const projects = intV("projects");
+      const costSum = ops + temp + rec + projects;
+      if (costSum !== 100)
+        rowErrors.push(`Cost heads sum to ${costSum}% — must equal 100`);
+
+      const row = {
+        emp_code: str("emp_code"),
+        name: str("name"),
+        father_name: str("father_name") || null,
+        entity: str("entity"),
+        department: str("department"),
+        designation: str("designation"),
+        location: str("location") || null,
+        email: str("email") || null,
+        dob: str("dob") || null,
+        doj: str("doj") || null,
+        last_working_day: str("last_working_day") || null,
+        status: str("status") || "Active",
+        ctc: num("ctc"),
+        pf: num("pf"),
+        esi: num("esi"),
+        bonus: num("bonus"),
+        variable: num("variable"),
+        other_component: num("other_component"),
+        reimbursement: num("reimbursement"),
+        gross_value:
+          num("gross_value") ||
+          num("ctc") +
+            num("pf") +
+            num("esi") +
+            num("bonus") +
+            num("other_component") +
+            num("reimbursement"),
+        cost_head_breakup: { ops, temp, rec, projects },
+        client_focus: [],
+      };
+
+      if (rowErrors.length > 0)
+        errors.push({
+          rowNum,
+          emp_code: str("emp_code") || `Row ${rowNum}`,
+          errors: rowErrors,
+        });
+      else valid.push(row);
+    });
+    return { valid, errors };
+  };
+
+  const handleBulkFile = (file) => {
+    if (!file) return;
+    setBulkFile(file);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const wb = XLSX.read(e.target.result, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rawRows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+      const filtered = rawRows.filter(
+        (r) =>
+          String(r.emp_code || "").toLowerCase() !== "unique. existing = update"
+      );
+      setBulkParsed(parseRows(filtered));
+      setBulkStep("preview");
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const handleBulkUpload = async () => {
+    if (!bulkParsed?.valid?.length) return;
+    setBulkUploading(true);
+    try {
+      const empCodes = bulkParsed.valid.map((r) => r.emp_code);
+
+      const { data: existing } = await supabase
+        .from("internal_team")
+        .select("emp_code")
+        .in("emp_code", empCodes);
+      const existingSet = new Set((existing || []).map((r) => r.emp_code));
+
+      const { error } = await supabase
+        .from("internal_team")
+        .upsert(bulkParsed.valid, { onConflict: "emp_code" });
+
+      if (error) throw error;
+
+      const updated = bulkParsed.valid.filter((r) =>
+        existingSet.has(r.emp_code)
+      ).length;
+      const inserted = bulkParsed.valid.length - updated;
+      setBulkResult({ inserted, updated, skipped: bulkParsed.errors.length });
+      setBulkStep("done");
+      onSaved?.();
+    } catch (err) {
+      setSaveError(err.message || "Bulk upload failed.");
+    } finally {
+      setBulkUploading(false);
+    }
+  };
+
+  const resetBulk = () => {
+    setBulkFile(null);
+    setBulkParsed(null);
+    setBulkResult(null);
+    setBulkStep("idle");
   };
 
   if (!isOpen) return null;
@@ -709,7 +945,6 @@ const AddInternalTeamModal = ({
                   <div
                     className="relative"
                     onBlur={(e) => {
-                      // close only if focus leaves the whole container
                       if (!e.currentTarget.contains(e.relatedTarget)) {
                         setEmailDropOpen(false);
                       }
@@ -720,7 +955,7 @@ const AddInternalTeamModal = ({
                       value={emailSearch || formData.email}
                       onChange={(e) => {
                         setEmailSearch(e.target.value);
-                        set("email", e.target.value); // allow manual override
+                        set("email", e.target.value);
                         setEmailDropOpen(true);
                       }}
                       onFocus={() => setEmailDropOpen(true)}
@@ -932,7 +1167,6 @@ const AddInternalTeamModal = ({
                 Split salary cost across departments. Must total exactly 100%.
               </p>
 
-              {/* Shortcut Buttons */}
               <div className="flex flex-wrap gap-2 mb-4">
                 {[
                   {
@@ -1007,7 +1241,6 @@ const AddInternalTeamModal = ({
                 ))}
               </div>
 
-              {/* Visual bar */}
               {costTotal > 0 && (
                 <div className="mt-3 h-2 rounded-full overflow-hidden bg-gray-100 flex">
                   {COST_HEADS.filter(
@@ -1048,16 +1281,13 @@ const AddInternalTeamModal = ({
                     type="button"
                     onClick={() => {
                       if (!formData.show_cost_shift) {
-                        // ✅ Auto-fill from current employee values
                         const now = new Date();
                         setFormData((p) => ({
                           ...p,
                           show_cost_shift: true,
                           cost_shift: {
-                            // default to current month/year
                             effective_month: String(now.getMonth() + 1),
                             effective_year: String(now.getFullYear()),
-                            // auto-fill all salary from current internal_team values
                             ctc: String(
                               editingEmployee?.ctc || p.ctc || ""
                             ),
@@ -1083,7 +1313,6 @@ const AddInternalTeamModal = ({
                                 p.other_component ||
                                 ""
                             ),
-                            // auto-fill cost head breakup from current values
                             cost_head_breakup: {
                               ops:
                                 editingEmployee?.cost_head_breakup?.ops ??
@@ -1098,7 +1327,6 @@ const AddInternalTeamModal = ({
                                 editingEmployee?.cost_head_breakup
                                   ?.projects ?? p.cost_head_breakup.projects,
                             },
-                            // auto-fill client focus from current values
                             client_focus: editingEmployee?.client_focus
                               ?.length
                               ? editingEmployee.client_focus
@@ -1233,23 +1461,17 @@ const AddInternalTeamModal = ({
                         </Field>
                       </div>
 
-                      {/* ✅ Auto-filled salary fields — user edits only what changed */}
                       <div>
                         <p className="text-xs font-semibold text-indigo-700 mb-2">
-                          Salary Components (auto-filled — edit only what changed)
+                          Salary Components (auto-filled — edit only what
+                          changed)
                         </p>
                         <div className="grid grid-cols-4 gap-3">
                           {[
-                            {
-                              field: "ctc",
-                              label: "Fixed Salary",
-                            },
+                            { field: "ctc", label: "Fixed Salary" },
                             { field: "pf", label: "PF" },
                             { field: "esi", label: "ESI" },
-                            {
-                              field: "variable",
-                              label: "Variable",
-                            },
+                            { field: "variable", label: "Variable" },
                             { field: "bonus", label: "Bonus" },
                             {
                               field: "reimbursement",
@@ -1283,7 +1505,6 @@ const AddInternalTeamModal = ({
                         </div>
                       </div>
 
-                      {/* Client Focus in Shift */}
                       <div>
                         <div className="flex items-center justify-between mb-2">
                           <p className="text-xs font-semibold text-indigo-700">
@@ -1432,7 +1653,6 @@ const AddInternalTeamModal = ({
                 )}
               </AnimatePresence>
 
-              {/* History table */}
               {historyLoading ? (
                 <div className="flex items-center space-x-2 text-sm text-gray-500 py-2">
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -1600,6 +1820,239 @@ const AddInternalTeamModal = ({
                   {errors.client_focus}
                 </p>
               )}
+            </Section>
+
+            {/* ── Bulk Upload Section ── */}
+            <Section
+              icon={<Upload className="w-4 h-4" />}
+              title="Bulk Upload Employees"
+              subtitle="Upload multiple employees at once via Excel. Existing emp_codes will be updated."
+              action={
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={downloadTemplate}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Template</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowBulkSection((v) => !v);
+                      resetBulk();
+                    }}
+                    className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium ${
+                      showBulkSection
+                        ? "bg-gray-200 text-gray-700"
+                        : "bg-purple-600 hover:bg-purple-700 text-white"
+                    }`}
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>
+                      {showBulkSection ? "Close" : "Bulk Upload"}
+                    </span>
+                  </button>
+                </div>
+              }
+            >
+              <AnimatePresence>
+                {showBulkSection && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden"
+                  >
+                    {bulkStep === "idle" && (
+                      <div
+                        onClick={() => bulkFileRef.current?.click()}
+                        className="border-2 border-dashed border-gray-300 hover:border-purple-400 hover:bg-purple-50/40 rounded-xl p-8 text-center cursor-pointer transition-all"
+                      >
+                        <FileSpreadsheet className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                        <p className="text-sm font-semibold text-gray-700">
+                          Click to choose Excel file
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          .xlsx or .xls — uses the template format
+                        </p>
+                        <input
+                          ref={bulkFileRef}
+                          type="file"
+                          accept=".xlsx,.xls"
+                          className="hidden"
+                          onChange={(e) =>
+                            handleBulkFile(e.target.files?.[0])
+                          }
+                        />
+                      </div>
+                    )}
+
+                    {bulkStep === "preview" && bulkParsed && (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between p-2.5 bg-gray-50 border border-gray-200 rounded-lg">
+                          <div className="flex items-center space-x-2">
+                            <FileSpreadsheet className="w-4 h-4 text-purple-600" />
+                            <p className="text-xs font-semibold text-gray-800 truncate max-w-[200px]">
+                              {bulkFile?.name}
+                            </p>
+                          </div>
+                          <button
+                            onClick={resetBulk}
+                            className="text-xs text-gray-500 hover:text-gray-700 underline"
+                          >
+                            Change
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2">
+                          {[
+                            {
+                              label: "Total",
+                              value:
+                                bulkParsed.valid.length +
+                                bulkParsed.errors.length,
+                              color:
+                                "bg-blue-50 border-blue-200 text-blue-800",
+                            },
+                            {
+                              label: "Valid",
+                              value: bulkParsed.valid.length,
+                              color:
+                                "bg-emerald-50 border-emerald-200 text-emerald-800",
+                            },
+                            {
+                              label: "Errors",
+                              value: bulkParsed.errors.length,
+                              color:
+                                bulkParsed.errors.length > 0
+                                  ? "bg-red-50 border-red-200 text-red-700"
+                                  : "bg-gray-50 border-gray-200 text-gray-400",
+                            },
+                          ].map((c) => (
+                            <div
+                              key={c.label}
+                              className={`border rounded-xl p-2 text-center ${c.color}`}
+                            >
+                              <p className="text-xl font-bold font-mono">
+                                {c.value}
+                              </p>
+                              <p className="text-[10px] font-semibold uppercase tracking-wide">
+                                {c.label}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+
+                        {bulkParsed.errors.length > 0 && (
+                          <div className="border border-red-200 rounded-lg p-3 space-y-1.5 max-h-40 overflow-y-auto bg-red-50">
+                            <p className="text-xs font-bold text-red-700 mb-1">
+                              Rows that will be skipped:
+                            </p>
+                            {bulkParsed.errors.map((e, i) => (
+                              <div
+                                key={i}
+                                className="text-xs bg-white border border-red-100 rounded-lg p-2"
+                              >
+                                <p className="font-bold text-gray-800">
+                                  Row {e.rowNum} — {e.emp_code}
+                                </p>
+                                {e.errors.map((msg, j) => (
+                                  <p key={j} className="text-red-700">
+                                    • {msg}
+                                  </p>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="flex items-center space-x-3">
+                          <button
+                            type="button"
+                            onClick={resetBulk}
+                            className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 text-xs font-medium hover:bg-gray-50"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleBulkUpload}
+                            disabled={
+                              bulkUploading ||
+                              bulkParsed.valid.length === 0
+                            }
+                            className="flex items-center space-x-2 px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-medium disabled:opacity-50"
+                          >
+                            {bulkUploading && (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            )}
+                            <span>
+                              {bulkUploading
+                                ? "Uploading…"
+                                : `Upload ${bulkParsed.valid.length} Employees`}
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {bulkStep === "done" && bulkResult && (
+                      <div className="text-center py-4 space-y-3">
+                        <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
+                        <p className="text-sm font-bold text-gray-900">
+                          Upload Complete!
+                        </p>
+                        <div className="grid grid-cols-3 gap-2 max-w-xs mx-auto">
+                          {[
+                            {
+                              label: "Inserted",
+                              value: bulkResult.inserted,
+                              color:
+                                "bg-emerald-50 border-emerald-200 text-emerald-800",
+                            },
+                            {
+                              label: "Updated",
+                              value: bulkResult.updated,
+                              color:
+                                "bg-blue-50 border-blue-200 text-blue-800",
+                            },
+                            {
+                              label: "Skipped",
+                              value: bulkResult.skipped,
+                              color:
+                                "bg-gray-50 border-gray-200 text-gray-500",
+                            },
+                          ].map((c) => (
+                            <div
+                              key={c.label}
+                              className={`border rounded-xl p-2 text-center ${c.color}`}
+                            >
+                              <p className="text-xl font-bold font-mono">
+                                {c.value}
+                              </p>
+                              <p className="text-[10px] font-semibold uppercase tracking-wide">
+                                {c.label}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            resetBulk();
+                            setShowBulkSection(false);
+                          }}
+                          className="px-4 py-2 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700"
+                        >
+                          Done
+                        </button>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </Section>
 
             {/* Save Error */}

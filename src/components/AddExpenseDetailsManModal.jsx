@@ -25,6 +25,7 @@ import {
   Trash2,
   Eye,
   RefreshCw,
+  CornerDownLeft,
 } from "lucide-react";
 import ExpenseRecordsView from "./ExpenseRecordsView";
 
@@ -581,16 +582,46 @@ const OsPayoutRecordsView = ({
   const [deleting, setDeleting] = useState(null);
   const [viewRow, setViewRow] = useState(null);
 
+  // BB states
+  const [bbRow, setBbRow] = useState(null); // payout row for BB modal
+  const [bbForm, setBbForm] = useState({});
+  const [bbSaving, setBbSaving] = useState(false);
+  const [bbErrors, setBbErrors] = useState({});
+  const [drillRow, setDrillRow] = useState(null); // payout row for BB drilldown
+  const [drillData, setDrillData] = useState([]);
+  const [drillLoading, setDrillLoading] = useState(false);
+  const [bbMap, setBbMap] = useState({}); // { [payout_id]: { total_bb, count } }
+
   const fetchRecords = async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("os_payouts")
       .select(
-        "*, clients_master(client_name), invoices(invoice_number), entity_master(entity_name), departments_master(dept_name), bank_master(bank_name)"
+        "*, clients_master(client_name), invoices(invoice_number, net_in_hand), entity_master(entity_name), departments_master(dept_name), bank_master(bank_name)"
       )
       .order("created_at", { ascending: false })
-      .limit(50);
-    if (!error) setRecords(data || []);
+      .limit(100);
+
+    if (!error && data) {
+      setRecords(data);
+      // Fetch BB totals for all payouts in one query
+      const ids = data.map((r) => r.id);
+      if (ids.length > 0) {
+        const { data: bbData } = await supabase
+          .from("os_payout_bouncebacks")
+          .select("os_payout_id, bb_amount, bb_emp_count")
+          .in("os_payout_id", ids);
+        const map = {};
+        (bbData || []).forEach((b) => {
+          if (!map[b.os_payout_id])
+            map[b.os_payout_id] = { total_bb: 0, total_bb_emp: 0, count: 0 };
+          map[b.os_payout_id].total_bb += parseFloat(b.bb_amount) || 0;
+          map[b.os_payout_id].total_bb_emp += parseInt(b.bb_emp_count) || 0;
+          map[b.os_payout_id].count += 1;
+        });
+        setBbMap(map);
+      }
+    }
     setLoading(false);
   };
 
@@ -598,84 +629,7 @@ const OsPayoutRecordsView = ({
     fetchRecords();
   }, []);
 
-  const startEdit = (row) => {
-    setEditRow(row.id);
-    setEditForm({
-      pay_head: row.pay_head || "",
-      payment_details: row.payment_details || "",
-      amount_paid: row.amount_paid || "",
-      income_tax_deducted: row.income_tax_deducted || "",
-      payment_date: row.payment_date || "",
-      bank_id: row.bank_id || "",
-      is_billable: row.is_billable || false,
-      remarks: row.remarks || "",
-    });
-  };
-
-  const saveEdit = async (row) => {
-    setSaving(true);
-    try {
-      const newAmount = parseFloat(editForm.amount_paid) || 0;
-      const newTax = parseFloat(editForm.income_tax_deducted) || 0;
-
-      const { error } = await supabase
-        .from("os_payouts")
-        .update({
-          pay_head: editForm.pay_head,
-          payment_details: editForm.payment_details,
-          amount_paid: newAmount,
-          income_tax_deducted: newTax,
-          payment_date: editForm.payment_date,
-          bank_id: editForm.bank_id || null,
-          bank_name:
-            banks.find((b) => b.id === editForm.bank_id)?.bank_name || null,
-          is_billable: editForm.is_billable,
-          remarks: editForm.remarks,
-        })
-        .eq("id", row.id);
-      if (error) throw error;
-
-      setEditRow(null);
-      fetchRecords();
-      onChanged?.();
-    } catch (err) {
-      alert("Error saving: " + err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const deleteRecord = async (row) => {
-    if (
-      !window.confirm(
-        `Delete this OS payout of ₹${Number(row.amount_paid).toLocaleString(
-          "en-IN"
-        )}? This will reverse all related entries.`
-      )
-    )
-      return;
-    setDeleting(row.id);
-    try {
-      // DB trigger trg_delete_os_payout automatically handles:
-      // - Soft-deletes bank_entries
-      // - Reverses software_entries
-      // - Reverses receivable_amount on invoice if billable
-      // - Deletes payout_bank_entries
-      const { error } = await supabase
-        .from("os_payouts")
-        .delete()
-        .eq("id", row.id);
-      if (error) throw error;
-
-      fetchRecords();
-      onChanged?.();
-    } catch (err) {
-      alert("Error deleting: " + err.message);
-    } finally {
-      setDeleting(null);
-    }
-  };
-
+  // ── helpers ──
   const fmtCur = (v) =>
     v != null ? `₹${Number(v).toLocaleString("en-IN")}` : "—";
   const fmtDate = (d) =>
@@ -687,13 +641,289 @@ const OsPayoutRecordsView = ({
         })
       : "—";
 
+  const netApproved = (row) => {
+    const bb = bbMap[row.id]?.total_bb || 0;
+    return Math.max(
+      (parseFloat(row.amount_paid) || 0) -
+        bb -
+        (parseFloat(row.income_tax_deducted) || 0),
+      0
+    );
+  };
+  const netEmpCount = (row) => {
+    const bbEmp = bbMap[row.id]?.total_bb_emp || 0;
+    return Math.max((parseInt(row.employee_count) || 0) - bbEmp, 0);
+  };
+
+  // ── EDIT ──
+  const startEdit = (row) => {
+    setEditRow(row.id);
+    setEditForm({
+      pay_head: row.pay_head || "",
+      payment_details: row.payment_details || "",
+      amount_paid: row.amount_paid || "",
+      income_tax_deducted: row.income_tax_deducted || "",
+      employee_count: row.employee_count || "",
+      payment_date: row.payment_date || "",
+      bank_id: row.bank_id || "",
+      is_billable: row.is_billable || false,
+      remarks: row.remarks || "",
+    });
+  };
+
+  const saveEdit = async (row) => {
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("os_payouts")
+        .update({
+          pay_head: editForm.pay_head,
+          payment_details: editForm.payment_details,
+          amount_paid: parseFloat(editForm.amount_paid) || 0,
+          income_tax_deducted: parseFloat(editForm.income_tax_deducted) || 0,
+          employee_count: parseInt(editForm.employee_count) || 0,
+          payment_date: editForm.payment_date,
+          bank_id: editForm.bank_id || null,
+          bank_name:
+            banks.find((b) => b.id === editForm.bank_id)?.bank_name || null,
+          is_billable: editForm.is_billable,
+          remarks: editForm.remarks,
+        })
+        .eq("id", row.id);
+      if (error) throw error;
+      setEditRow(null);
+      fetchRecords();
+      onChanged?.();
+    } catch (err) {
+      alert("Error saving: " + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ── DELETE ──
+  const deleteRecord = async (row) => {
+    if (
+      !window.confirm(
+        `Delete OS payout of ₹${Number(row.amount_paid).toLocaleString(
+          "en-IN"
+        )}?\nAll related BB entries and bank entries will also be deleted.`
+      )
+    )
+      return;
+    setDeleting(row.id);
+    try {
+      // Delete BB bank entries first
+      const { data: bbList } = await supabase
+        .from("os_payout_bouncebacks")
+        .select("bank_entry_id")
+        .eq("os_payout_id", row.id);
+      const bankEntryIds = (bbList || [])
+        .map((b) => b.bank_entry_id)
+        .filter(Boolean);
+      if (bankEntryIds.length > 0) {
+        await supabase
+          .from("bank_entries")
+          .update({ is_deleted: true })
+          .in("id", bankEntryIds);
+      }
+      // Delete BB records (cascade would also do this, just being explicit)
+      await supabase
+        .from("os_payout_bouncebacks")
+        .delete()
+        .eq("os_payout_id", row.id);
+      // Delete the payout
+      const { error } = await supabase
+        .from("os_payouts")
+        .delete()
+        .eq("id", row.id);
+      if (error) throw error;
+      // Soft-delete original bank entry
+      await supabase
+        .from("bank_entries")
+        .update({ is_deleted: true })
+        .eq("source_table", "os_payouts")
+        .eq("source_id", row.id);
+      fetchRecords();
+      onChanged?.();
+    } catch (err) {
+      alert("Error deleting: " + err.message);
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  // ── BB DRILLDOWN ──
+  const openDrilldown = async (row) => {
+    setDrillRow(row);
+    setDrillLoading(true);
+    const { data } = await supabase
+      .from("os_payout_bouncebacks")
+      .select("*")
+      .eq("os_payout_id", row.id)
+      .order("created_at", { ascending: true });
+    setDrillData(data || []);
+    setDrillLoading(false);
+  };
+
+  const deleteBB = async (bb, parentRow) => {
+    if (
+      !window.confirm(
+        `Delete BB ${bb.bb_ref_no} of ₹${Number(bb.bb_amount).toLocaleString(
+          "en-IN"
+        )}?`
+      )
+    )
+      return;
+    try {
+      // Soft-delete the bank entry
+      if (bb.bank_entry_id) {
+        await supabase
+          .from("bank_entries")
+          .update({ is_deleted: true })
+          .eq("id", bb.bank_entry_id);
+      }
+      await supabase.from("os_payout_bouncebacks").delete().eq("id", bb.id);
+      // Refresh drilldown + records
+      openDrilldown(parentRow);
+      fetchRecords();
+      onChanged?.();
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
+  };
+
+  // ── BB MODAL OPEN ──
+  const openBbModal = (row) => {
+    setBbRow(row);
+    setBbForm({
+      bb_date: new Date().toISOString().slice(0, 10),
+      bb_amount: "",
+      bb_emp_count: "",
+      remarks: "",
+    });
+    setBbErrors({});
+  };
+
+  // ── BB SAVE ──
+  const saveBB = async () => {
+    const errs = {};
+    if (!bbForm.bb_amount || parseFloat(bbForm.bb_amount) <= 0)
+      errs.bb_amount = "Must be > 0";
+    if (!bbForm.bb_date) errs.bb_date = "Required";
+    const bbAmt = parseFloat(bbForm.bb_amount) || 0;
+    const existingBB = bbMap[bbRow.id]?.total_bb || 0;
+    const maxBB = parseFloat(bbRow.amount_paid) || 0;
+    if (bbAmt + existingBB > maxBB) {
+      errs.bb_amount = `Total BB (₹${(bbAmt + existingBB).toLocaleString(
+        "en-IN"
+      )}) cannot exceed amount paid (₹${maxBB.toLocaleString("en-IN")})`;
+    }
+    if (Object.keys(errs).length > 0) {
+      setBbErrors(errs);
+      return;
+    }
+
+    setBbSaving(true);
+    try {
+      // 1. Generate BB ref number
+      const { data: refData } = await supabase.rpc("generate_bb_ref");
+      const bbRef = refData || `BB${Date.now().toString().slice(-4)}`;
+
+      // 2. Generate bank entry reference (same BNK- pattern)
+      const now = new Date();
+      const dd = String(now.getDate()).padStart(2, "0");
+      const mm = String(now.getMonth() + 1).padStart(2, "0");
+      const yy = String(now.getFullYear()).slice(-2);
+      const { count: todayCount } = await supabase
+        .from("bank_entries")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", now.toISOString().slice(0, 10));
+      const seq = String((todayCount || 0) + 1).padStart(2, "0");
+      const bankRef = `BNK-${dd}${mm}${yy}-${seq}`;
+
+      // 3. Get bank_id from the original payout (use same bank — money coming back to same account)
+      const bankId = bbRow.bank_id;
+      const bankEntry = {
+        bank_id: bankId,
+        date: bbForm.bb_date,
+        amount: bbAmt,
+        type: "credit",
+        flow_type: "os_bounce_back",
+        entry_type: "os_bounce_back",
+        source_table: "os_payout_bouncebacks",
+        reference_no: bankRef,
+        invoice_id: bbRow.invoice_id || null,
+        invoice_number: bbRow.invoices?.invoice_number || null,
+        entity: bbRow.entity_master?.entity_name || null,
+        remarks: `OS Bounce Back - ${bbRef} - ${
+          bbRow.payout_ref_no || bbRow.invoices?.invoice_number || ""
+        }`,
+        is_deleted: false,
+      };
+
+      const { data: savedBankEntry, error: beErr } = await supabase
+        .from("bank_entries")
+        .insert([bankEntry])
+        .select()
+        .single();
+      if (beErr) throw beErr;
+
+      // 4. Insert BB record
+      const bbPayload = {
+        bb_ref_no: bbRef,
+        os_payout_id: bbRow.id,
+        invoice_id: bbRow.invoice_id || null,
+        invoice_number: bbRow.invoices?.invoice_number || null,
+        client_id: bbRow.client_id || null,
+        department_id: bbRow.department_id || null,
+        entity_id: bbRow.entity_id || null,
+        os_payout_date: bbRow.payment_date,
+        bb_date: bbForm.bb_date,
+        original_amount: parseFloat(bbRow.amount_paid) || 0,
+        bb_amount: bbAmt,
+        original_emp_count: parseInt(bbRow.employee_count) || 0,
+        bb_emp_count: parseInt(bbForm.bb_emp_count) || 0,
+        bank_entry_id: savedBankEntry.id,
+        remarks: bbForm.remarks || "",
+      };
+
+      // Update source_id on bank entry to point to the BB record
+      const { data: savedBB, error: bbErr } = await supabase
+        .from("os_payout_bouncebacks")
+        .insert([bbPayload])
+        .select()
+        .single();
+      if (bbErr) throw bbErr;
+
+      // Patch bank_entry source_id
+      await supabase
+        .from("bank_entries")
+        .update({ source_id: savedBB.id })
+        .eq("id", savedBankEntry.id);
+
+      setBbRow(null);
+      fetchRecords();
+      onChanged?.();
+      alert(
+        `✅ Bounce Back ${bbRef} saved!\nBank credit entry ${bankRef} created for ₹${bbAmt.toLocaleString(
+          "en-IN"
+        )}`
+      );
+    } catch (err) {
+      alert("Error saving BB: " + err.message);
+    } finally {
+      setBbSaving(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl mx-4 flex flex-col overflow-hidden"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-7xl mx-4 flex flex-col overflow-hidden"
         style={{ maxHeight: "90vh" }}
       >
-        {/* Header */}
+        {/* ── Header ── */}
         <div className="bg-gradient-to-r from-purple-600 to-pink-700 px-6 py-4 flex-shrink-0 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-white/20 rounded-xl">
@@ -704,7 +934,8 @@ const OsPayoutRecordsView = ({
                 OS Payout Records
               </h3>
               <p className="text-white/70 text-xs">
-                View, edit or delete 3rd-party payouts
+                Net Approved = OS Amt − BB − TDS &nbsp;|&nbsp; Net Emp = Emp
+                Count − BB Emp Count
               </p>
             </div>
           </div>
@@ -724,7 +955,7 @@ const OsPayoutRecordsView = ({
           </div>
         </div>
 
-        {/* Table */}
+        {/* ── Table ── */}
         <div className="overflow-auto flex-1">
           {loading ? (
             <div className="flex items-center justify-center py-20 gap-3 text-gray-500">
@@ -737,7 +968,7 @@ const OsPayoutRecordsView = ({
               <p className="text-sm font-medium">No OS payout records found</p>
             </div>
           ) : (
-            <table className="w-full text-sm min-w-[900px]">
+            <table className="w-full text-sm min-w-[1400px]">
               <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
                 <tr>
                   {[
@@ -745,15 +976,20 @@ const OsPayoutRecordsView = ({
                     "Invoice / Client",
                     "Pay Head",
                     "Details",
-                    "Amount",
-                    "Tax",
+                    "OS Amount",
+                    "BB Amount",
+                    "Net OS Amt",
+                    "Emp Count",
+                    "BB Emp",
+                    "Net Emp",
+                    "TDS",
                     "Bank",
                     "Billable",
                     "Actions",
                   ].map((h) => (
                     <th
                       key={h}
-                      className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider whitespace-nowrap"
+                      className="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider whitespace-nowrap"
                     >
                       {h}
                     </th>
@@ -761,11 +997,20 @@ const OsPayoutRecordsView = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {records.map((row) =>
-                  editRow === row.id ? (
-                    // ── EDIT ROW ──
-                    <tr key={row.id} className="bg-indigo-50">
-                      <td className="px-3 py-2">
+                {records.map((row) => {
+                  const bb = bbMap[row.id] || {
+                    total_bb: 0,
+                    total_bb_emp: 0,
+                    count: 0,
+                  };
+                  const netAmt = netApproved(row);
+                  const netEmp = netEmpCount(row);
+                  const hasBB = bb.count > 0;
+
+                  return editRow === row.id ? (
+                    /* ── EDIT ROW ── */
+                    <tr key={row.id} className="bg-indigo-50/60">
+                      <td className="px-2 py-2">
                         <input
                           type="date"
                           value={editForm.payment_date}
@@ -778,14 +1023,12 @@ const OsPayoutRecordsView = ({
                           className="border border-indigo-300 rounded-lg px-2 py-1.5 text-xs w-32 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                         />
                       </td>
-                      <td className="px-3 py-2">
-                        <span className="text-xs text-gray-500">
-                          {row.invoices?.invoice_number ||
-                            row.clients_master?.client_name ||
-                            "—"}
-                        </span>
+                      <td className="px-2 py-2 text-xs text-gray-500">
+                        {row.invoices?.invoice_number ||
+                          row.clients_master?.client_name ||
+                          "—"}
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-2">
                         <input
                           type="text"
                           value={editForm.pay_head}
@@ -798,7 +1041,7 @@ const OsPayoutRecordsView = ({
                           className="border border-indigo-300 rounded-lg px-2 py-1.5 text-xs w-28 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                         />
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-2">
                         <input
                           type="text"
                           value={editForm.payment_details}
@@ -808,10 +1051,10 @@ const OsPayoutRecordsView = ({
                               payment_details: e.target.value,
                             }))
                           }
-                          className="border border-indigo-300 rounded-lg px-2 py-1.5 text-xs w-36 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                          className="border border-indigo-300 rounded-lg px-2 py-1.5 text-xs w-32 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                         />
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-2">
                         <input
                           type="number"
                           value={editForm.amount_paid}
@@ -824,7 +1067,46 @@ const OsPayoutRecordsView = ({
                           className="border border-indigo-300 rounded-lg px-2 py-1.5 text-xs w-24 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                         />
                       </td>
-                      <td className="px-3 py-2">
+                      {/* BB total — read-only in edit */}
+                      <td className="px-2 py-2 text-xs text-rose-600 font-semibold">
+                        {hasBB ? fmtCur(bb.total_bb) : "—"}
+                      </td>
+                      {/* Net — computed */}
+                      <td className="px-2 py-2">
+                        <div className="bg-emerald-100 border border-emerald-200 rounded-lg px-2 py-1.5 text-xs font-bold text-emerald-700 w-24 text-right">
+                          ₹
+                          {Math.max(
+                            (parseFloat(editForm.amount_paid) || 0) -
+                              bb.total_bb -
+                              (parseFloat(editForm.income_tax_deducted) || 0),
+                            0
+                          ).toLocaleString("en-IN")}
+                        </div>
+                      </td>
+                      <td className="px-2 py-2">
+                        <input
+                          type="number"
+                          value={editForm.employee_count}
+                          onChange={(e) =>
+                            setEditForm((p) => ({
+                              ...p,
+                              employee_count: e.target.value,
+                            }))
+                          }
+                          className="border border-indigo-300 rounded-lg px-2 py-1.5 text-xs w-16 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        />
+                      </td>
+                      <td className="px-2 py-2 text-xs text-rose-600 font-semibold">
+                        {hasBB ? bb.total_bb_emp : "—"}
+                      </td>
+                      <td className="px-2 py-2 text-xs text-emerald-700 font-semibold">
+                        {Math.max(
+                          (parseInt(editForm.employee_count) || 0) -
+                            bb.total_bb_emp,
+                          0
+                        )}
+                      </td>
+                      <td className="px-2 py-2">
                         <input
                           type="number"
                           value={editForm.income_tax_deducted}
@@ -837,7 +1119,7 @@ const OsPayoutRecordsView = ({
                           className="border border-indigo-300 rounded-lg px-2 py-1.5 text-xs w-20 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                         />
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-2">
                         <select
                           value={editForm.bank_id}
                           onChange={(e) =>
@@ -846,7 +1128,7 @@ const OsPayoutRecordsView = ({
                               bank_id: e.target.value,
                             }))
                           }
-                          className="border border-indigo-300 rounded-lg px-2 py-1.5 text-xs w-32 focus:outline-none"
+                          className="border border-indigo-300 rounded-lg px-2 py-1.5 text-xs w-28 focus:outline-none"
                         >
                           <option value="">—</option>
                           {banks.map((b) => (
@@ -856,7 +1138,7 @@ const OsPayoutRecordsView = ({
                           ))}
                         </select>
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-2">
                         <button
                           type="button"
                           onClick={() =>
@@ -880,7 +1162,7 @@ const OsPayoutRecordsView = ({
                           />
                         </button>
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-2">
                         <div className="flex items-center gap-1">
                           <button
                             onClick={() => saveEdit(row)}
@@ -904,15 +1186,15 @@ const OsPayoutRecordsView = ({
                       </td>
                     </tr>
                   ) : (
-                    // ── VIEW ROW ──
+                    /* ── VIEW ROW ── */
                     <tr
                       key={row.id}
                       className="hover:bg-gray-50 transition-colors"
                     >
-                      <td className="px-4 py-3 whitespace-nowrap text-gray-700">
+                      <td className="px-3 py-3 whitespace-nowrap text-gray-700 text-xs">
                         {fmtDate(row.payment_date)}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-3">
                         {row.invoice_id ? (
                           <span className="inline-flex items-center gap-1 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
                             <FileText size={10} />
@@ -924,24 +1206,97 @@ const OsPayoutRecordsView = ({
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-gray-700">
+                      <td className="px-3 py-3 text-gray-700 text-xs">
                         {row.pay_head || "—"}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs max-w-[180px] truncate">
+                      <td className="px-3 py-3 text-gray-500 text-xs max-w-[120px] truncate">
                         {row.payment_details || "—"}
                       </td>
-                      <td className="px-4 py-3 font-semibold text-gray-900">
+
+                      {/* OS Amount */}
+                      <td className="px-3 py-3 font-semibold text-gray-900 text-xs whitespace-nowrap">
                         {fmtCur(row.amount_paid)}
                       </td>
-                      <td className="px-4 py-3 text-gray-600">
-                        {row.income_tax_deducted > 0
+
+                      {/* BB Amount */}
+                      <td className="px-3 py-3 text-xs">
+                        {hasBB ? (
+                          <div className="flex items-center gap-1">
+                            <span className="inline-flex items-center gap-1 bg-rose-100 text-rose-700 font-bold px-2 py-0.5 rounded-full whitespace-nowrap">
+                              <CornerDownLeft size={10} />−{fmtCur(bb.total_bb)}
+                              <span className="text-[10px] opacity-70">
+                                ({bb.count})
+                              </span>
+                            </span>
+                            <button
+                              onClick={() => openDrilldown(row)}
+                              className="p-1 rounded-lg hover:bg-rose-100 text-rose-500 transition"
+                              title="View / Delete BB entries"
+                            >
+                              <Eye size={11} />
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-gray-300 text-xs">—</span>
+                        )}
+                      </td>
+
+                      {/* Net OS Amount */}
+                      <td className="px-3 py-3 text-xs">
+                        <span
+                          className={`inline-flex items-center font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${
+                            hasBB
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-emerald-100 text-emerald-700"
+                          }`}
+                        >
+                          {fmtCur(netAmt)}
+                        </span>
+                      </td>
+
+                      {/* Emp Count */}
+                      <td className="px-3 py-3 text-center text-gray-700 text-xs font-semibold">
+                        {row.employee_count > 0 ? row.employee_count : "—"}
+                      </td>
+
+                      {/* BB Emp */}
+                      <td className="px-3 py-3 text-center text-xs">
+                        {hasBB && bb.total_bb_emp > 0 ? (
+                          <span className="text-rose-600 font-semibold">
+                            −{bb.total_bb_emp}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+
+                      {/* Net Emp */}
+                      <td className="px-3 py-3 text-center text-xs">
+                        {row.employee_count > 0 ? (
+                          <span
+                            className={`font-bold ${
+                              hasBB ? "text-amber-700" : "text-emerald-700"
+                            }`}
+                          >
+                            {netEmp}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+
+                      {/* TDS */}
+                      <td className="px-3 py-3 text-gray-600 text-xs">
+                        {(parseFloat(row.income_tax_deducted) || 0) > 0
                           ? fmtCur(row.income_tax_deducted)
                           : "—"}
                       </td>
-                      <td className="px-4 py-3 text-gray-600 text-xs">
+
+                      <td className="px-3 py-3 text-gray-600 text-xs">
                         {row.bank_master?.bank_name || "—"}
                       </td>
-                      <td className="px-4 py-3">
+
+                      <td className="px-3 py-3">
                         <span
                           className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-semibold ${
                             row.is_billable
@@ -949,42 +1304,51 @@ const OsPayoutRecordsView = ({
                               : "bg-gray-100 text-gray-500"
                           }`}
                         >
-                          {row.is_billable ? "✓ Billable" : "Non-Bill"}
+                          {row.is_billable ? "✓ Bill" : "No"}
                         </span>
                       </td>
-                      <td className="px-4 py-3">
+
+                      {/* Actions: View | Edit | BB | Delete */}
+                      <td className="px-3 py-3">
                         <div className="flex items-center gap-1">
                           <button
                             onClick={() => setViewRow(row)}
                             className="p-1.5 rounded-lg hover:bg-blue-100 text-blue-600 transition"
-                            title="View details"
+                            title="View"
                           >
-                            <Eye size={14} />
+                            <Eye size={13} />
                           </button>
                           <button
                             onClick={() => startEdit(row)}
                             className="p-1.5 rounded-lg hover:bg-indigo-100 text-indigo-600 transition"
                             title="Edit"
                           >
-                            <Pencil size={14} />
+                            <Pencil size={13} />
+                          </button>
+                          <button
+                            onClick={() => openBbModal(row)}
+                            className="p-1.5 rounded-lg hover:bg-rose-100 text-rose-500 transition"
+                            title="Add Bounce Back"
+                          >
+                            <CornerDownLeft size={13} />
                           </button>
                           <button
                             onClick={() => deleteRecord(row)}
                             disabled={deleting === row.id}
-                            className="p-1.5 rounded-lg hover:bg-rose-100 text-rose-500 transition disabled:opacity-40"
+                            className="p-1.5 rounded-lg hover:bg-red-100 text-red-500 transition disabled:opacity-40"
                             title="Delete"
                           >
                             {deleting === row.id ? (
-                              <Loader2 size={14} className="animate-spin" />
+                              <Loader2 size={13} className="animate-spin" />
                             ) : (
-                              <Trash2 size={14} />
+                              <Trash2 size={13} />
                             )}
                           </button>
                         </div>
                       </td>
                     </tr>
-                  )
-                )}
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -992,7 +1356,8 @@ const OsPayoutRecordsView = ({
 
         <div className="flex-shrink-0 px-5 py-3 border-t border-gray-100 flex items-center justify-between">
           <p className="text-xs text-gray-500">
-            {records.length} record{records.length !== 1 ? "s" : ""} (latest 50)
+            {records.length} record{records.length !== 1 ? "s" : ""} (latest
+            100)
           </p>
           <button
             onClick={onClose}
@@ -1003,7 +1368,399 @@ const OsPayoutRecordsView = ({
         </div>
       </div>
 
-      {/* ── Detail View Modal ── */}
+      {/* ══════════════════════════════════════════════
+          BB MODAL — Add Bounce Back
+      ══════════════════════════════════════════════ */}
+      {bbRow && (
+        <div className="fixed inset-0 z-[9999999] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="bg-gradient-to-r from-rose-500 to-pink-600 px-5 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white/20 rounded-xl">
+                  <CornerDownLeft className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h4 className="text-white font-bold">Add Bounce Back</h4>
+                  <p className="text-white/70 text-xs">
+                    {bbRow.invoices?.invoice_number ||
+                      bbRow.clients_master?.client_name ||
+                      bbRow.payout_ref_no ||
+                      "OS Payout"}
+                    &nbsp;·&nbsp;Paid: {fmtCur(bbRow.amount_paid)}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setBbRow(null)}
+                className="text-white/70 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* Existing BB summary if any */}
+              {(bbMap[bbRow.id]?.count || 0) > 0 && (
+                <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs">
+                  <p className="text-rose-700 font-semibold mb-1">
+                    Existing Bounce Backs on this payout:
+                  </p>
+                  <div className="flex justify-between">
+                    <span className="text-rose-600">Total BB so far</span>
+                    <span className="font-bold text-rose-700">
+                      {fmtCur(bbMap[bbRow.id].total_bb)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-rose-600">
+                      Remaining after existing BB
+                    </span>
+                    <span className="font-bold text-emerald-700">
+                      {fmtCur(
+                        (parseFloat(bbRow.amount_paid) || 0) -
+                          (bbMap[bbRow.id]?.total_bb || 0)
+                      )}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Breakdown preview */}
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">OS Amount Paid</span>
+                  <span className="font-bold text-gray-800">
+                    {fmtCur(bbRow.amount_paid)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-rose-600">
+                  <span>This Bounce Back</span>
+                  <span className="font-bold">
+                    −
+                    {bbForm.bb_amount
+                      ? fmtCur(parseFloat(bbForm.bb_amount) || 0)
+                      : "₹0"}
+                  </span>
+                </div>
+                <div className="flex justify-between border-t border-gray-200 pt-1">
+                  <span className="font-semibold text-gray-700">
+                    Net Approved (after this BB)
+                  </span>
+                  <span className="font-bold text-emerald-600">
+                    {fmtCur(
+                      Math.max(
+                        (parseFloat(bbRow.amount_paid) || 0) -
+                          (bbMap[bbRow.id]?.total_bb || 0) -
+                          (parseFloat(bbForm.bb_amount) || 0) -
+                          (parseFloat(bbRow.income_tax_deducted) || 0),
+                        0
+                      )
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              {/* BB Date */}
+              <div>
+                <label className="text-xs font-semibold text-gray-700 uppercase tracking-wider block mb-1.5">
+                  BB Date *
+                </label>
+                <input
+                  type="date"
+                  value={bbForm.bb_date}
+                  onChange={(e) =>
+                    setBbForm((p) => ({ ...p, bb_date: e.target.value }))
+                  }
+                  className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 text-gray-800 ${
+                    bbErrors.bb_date
+                      ? "border-red-400 bg-red-50"
+                      : "border-gray-200 bg-white"
+                  }`}
+                />
+                {bbErrors.bb_date && (
+                  <p className="text-xs text-red-500 mt-1">
+                    {bbErrors.bb_date}
+                  </p>
+                )}
+              </div>
+
+              {/* BB Amount + Emp Count */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 uppercase tracking-wider block mb-1.5">
+                    BB Amount *
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2.5 text-rose-500 text-sm font-medium">
+                      ₹
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={bbForm.bb_amount}
+                      onChange={(e) => {
+                        setBbForm((p) => ({
+                          ...p,
+                          bb_amount: e.target.value.replace(/[^0-9.]/g, ""),
+                        }));
+                        setBbErrors((p) => ({ ...p, bb_amount: "" }));
+                      }}
+                      className={`w-full border rounded-lg pl-7 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 text-gray-800 placeholder-gray-400 ${
+                        bbErrors.bb_amount
+                          ? "border-red-400 bg-red-50"
+                          : "border-rose-200 bg-rose-50"
+                      }`}
+                      placeholder="0"
+                    />
+                  </div>
+                  {bbErrors.bb_amount && (
+                    <p className="text-xs text-red-500 mt-1">
+                      {bbErrors.bb_amount}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 uppercase tracking-wider block mb-1.5">
+                    BB Emp Count
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={bbForm.bb_emp_count}
+                    onChange={(e) =>
+                      setBbForm((p) => ({
+                        ...p,
+                        bb_emp_count: e.target.value.replace(/[^0-9]/g, ""),
+                      }))
+                    }
+                    className="w-full border border-gray-200 bg-white text-gray-800 placeholder-gray-400 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400"
+                    placeholder="0"
+                  />
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Original: {bbRow.employee_count || 0}
+                  </p>
+                </div>
+              </div>
+
+              {/* Remarks */}
+              <div>
+                <label className="text-xs font-semibold text-gray-700 uppercase tracking-wider block mb-1.5">
+                  Remarks
+                </label>
+                <textarea
+                  rows={2}
+                  value={bbForm.remarks}
+                  onChange={(e) =>
+                    setBbForm((p) => ({ ...p, remarks: e.target.value }))
+                  }
+                  className="w-full border border-gray-200 bg-white text-gray-800 placeholder-gray-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 resize-none"
+                  placeholder="Reason for bounce back..."
+                />
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-xs text-blue-700">
+                💡 Saving will auto-create a <strong>Credit bank entry</strong>{" "}
+                (flow: os_bounce_back) and update OS Amt Difference across
+                dashboards.
+              </div>
+            </div>
+
+            <div className="px-5 py-4 border-t flex gap-3">
+              <button
+                onClick={() => setBbRow(null)}
+                className="flex-1 py-2.5 rounded-xl border-2 border-gray-200 text-gray-600 text-sm font-semibold hover:bg-gray-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveBB}
+                disabled={bbSaving}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold transition flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                {bbSaving ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <CornerDownLeft size={14} />
+                )}
+                {bbSaving ? "Saving…" : "Save Bounce Back"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════
+          BB DRILLDOWN MODAL
+      ══════════════════════════════════════════════ */}
+      {drillRow && (
+        <div className="fixed inset-0 z-[9999999] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+            <div className="bg-gradient-to-r from-rose-500 to-pink-600 px-5 py-4 flex items-center justify-between">
+              <div>
+                <h4 className="text-white font-bold">Bounce Back Breakdown</h4>
+                <p className="text-white/70 text-xs">
+                  {drillRow.invoices?.invoice_number ||
+                    drillRow.payout_ref_no ||
+                    "OS Payout"}
+                  &nbsp;·&nbsp;Original: {fmtCur(drillRow.amount_paid)}
+                </p>
+              </div>
+              <button
+                onClick={() => setDrillRow(null)}
+                className="text-white/70 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3 max-h-[60vh] overflow-y-auto">
+              {drillLoading ? (
+                <div className="flex items-center justify-center py-10 gap-2 text-gray-500">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>Loading…</span>
+                </div>
+              ) : drillData.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-8">
+                  No bounce backs found.
+                </p>
+              ) : (
+                <>
+                  {drillData.map((bb, i) => (
+                    <div
+                      key={bb.id}
+                      className="flex items-start gap-3 bg-rose-50 border border-rose-100 rounded-xl px-4 py-3"
+                    >
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono font-bold text-rose-700 text-sm">
+                            {bb.bb_ref_no}
+                          </span>
+                          <span className="text-xs bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full">
+                            {fmtDate(bb.bb_date)}
+                          </span>
+                          {bb.bb_emp_count > 0 && (
+                            <span className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full">
+                              {bb.bb_emp_count} emp
+                            </span>
+                          )}
+                        </div>
+                        {bb.remarks && (
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {bb.remarks}
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="font-bold text-rose-700">
+                          {fmtCur(bb.bb_amount)}
+                        </p>
+                        <button
+                          onClick={() => deleteBB(bb, drillRow)}
+                          className="text-[10px] text-red-400 hover:text-red-600 mt-0.5 flex items-center gap-0.5 ml-auto"
+                        >
+                          <Trash2 size={10} />
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Total */}
+                  <div className="border-t border-gray-200 pt-3 space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">OS Amount Paid</span>
+                      <span className="font-bold text-gray-800">
+                        {fmtCur(drillRow.amount_paid)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-rose-600">
+                      <span>Total Bounce Back ({drillData.length})</span>
+                      <span className="font-bold">
+                        −
+                        {fmtCur(
+                          drillData.reduce(
+                            (s, b) => s + (parseFloat(b.bb_amount) || 0),
+                            0
+                          )
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-amber-600">
+                      <span>TDS</span>
+                      <span className="font-bold">
+                        −{fmtCur(drillRow.income_tax_deducted || 0)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-t border-gray-200 pt-1">
+                      <span className="font-bold text-gray-700">
+                        Net Approved
+                      </span>
+                      <span className="font-bold text-emerald-600 text-base">
+                        {fmtCur(
+                          Math.max(
+                            (parseFloat(drillRow.amount_paid) || 0) -
+                              drillData.reduce(
+                                (s, b) => s + (parseFloat(b.bb_amount) || 0),
+                                0
+                              ) -
+                              (parseFloat(drillRow.income_tax_deducted) || 0),
+                            0
+                          )
+                        )}
+                      </span>
+                    </div>
+                    {drillRow.employee_count > 0 && (
+                      <div className="flex justify-between text-xs text-gray-500 pt-1">
+                        <span>
+                          Net Emp Count ({drillRow.employee_count} −{" "}
+                          {drillData.reduce(
+                            (s, b) => s + (parseInt(b.bb_emp_count) || 0),
+                            0
+                          )}{" "}
+                          BB)
+                        </span>
+                        <span className="font-bold text-emerald-600">
+                          {Math.max(
+                            (drillRow.employee_count || 0) -
+                              drillData.reduce(
+                                (s, b) => s + (parseInt(b.bb_emp_count) || 0),
+                                0
+                              ),
+                            0
+                          )}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="px-5 py-3 border-t flex gap-2">
+              <button
+                onClick={() => {
+                  setDrillRow(null);
+                  openBbModal(drillRow);
+                }}
+                className="flex-1 py-2 rounded-xl bg-rose-600 text-white text-sm font-semibold hover:bg-rose-700 transition flex items-center justify-center gap-2"
+              >
+                <CornerDownLeft size={14} />
+                Add Another BB
+              </button>
+              <button
+                onClick={() => setDrillRow(null)}
+                className="flex-1 py-2 rounded-xl bg-gray-800 text-white text-sm font-semibold hover:bg-gray-900 transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════
+          VIEW DETAIL MODAL
+      ══════════════════════════════════════════════ */}
       {viewRow && (
         <div className="fixed inset-0 z-[9999999] flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
@@ -1016,7 +1773,53 @@ const OsPayoutRecordsView = ({
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-5 space-y-2 text-sm max-h-[60vh] overflow-y-auto">
+            <div className="p-5 space-y-3 text-sm max-h-[65vh] overflow-y-auto">
+              {/* Payment breakdown */}
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-2">
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                  Payment Breakdown
+                </p>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">OS Amount Paid</span>
+                  <span className="font-bold text-gray-900">
+                    {fmtCur(viewRow.amount_paid)}
+                  </span>
+                </div>
+                {(bbMap[viewRow.id]?.total_bb || 0) > 0 && (
+                  <div className="flex justify-between text-rose-600">
+                    <span className="flex items-center gap-1">
+                      <CornerDownLeft size={12} />
+                      Total Bounce Back ({bbMap[viewRow.id].count})
+                    </span>
+                    <span className="font-bold">
+                      −{fmtCur(bbMap[viewRow.id].total_bb)}
+                    </span>
+                  </div>
+                )}
+                {(parseFloat(viewRow.income_tax_deducted) || 0) > 0 && (
+                  <div className="flex justify-between text-amber-600">
+                    <span>TDS Deducted</span>
+                    <span className="font-bold">
+                      −{fmtCur(viewRow.income_tax_deducted)}
+                    </span>
+                  </div>
+                )}
+                <div className="border-t border-gray-200 pt-2 flex justify-between">
+                  <span className="font-bold text-gray-700">Net Approved</span>
+                  <span className="font-bold text-emerald-600 text-base">
+                    {fmtCur(netApproved(viewRow))}
+                  </span>
+                </div>
+                {viewRow.employee_count > 0 && (
+                  <div className="flex justify-between text-xs text-gray-500 pt-1 border-t border-gray-100">
+                    <span>Net Emp Count</span>
+                    <span className="font-bold text-emerald-600">
+                      {netEmpCount(viewRow)} of {viewRow.employee_count}
+                    </span>
+                  </div>
+                )}
+              </div>
+
               {[
                 [
                   "Date",
@@ -1033,33 +1836,13 @@ const OsPayoutRecordsView = ({
                 ["Department", viewRow.departments_master?.dept_name || "—"],
                 ["Pay Head", viewRow.pay_head || "—"],
                 ["Payment Details", viewRow.payment_details || "—"],
-                [
-                  "Amount Paid",
-                  `₹${Number(viewRow.amount_paid).toLocaleString("en-IN")}`,
-                ],
-                [
-                  "Income Tax Deducted",
-                  viewRow.income_tax_deducted > 0
-                    ? `₹${Number(viewRow.income_tax_deducted).toLocaleString(
-                        "en-IN"
-                      )}`
-                    : "—",
-                ],
-                [
-                  "Net Amount",
-                  `₹${Math.max(
-                    0,
-                    (parseFloat(viewRow.amount_paid) || 0) -
-                      (parseFloat(viewRow.income_tax_deducted) || 0)
-                  ).toLocaleString("en-IN")}`,
-                ],
                 ["Bank", viewRow.bank_master?.bank_name || "—"],
                 ["Billable", viewRow.is_billable ? "Yes ✓" : "No"],
                 ["Payout Ref", viewRow.payout_ref_no || "—"],
                 ["Remarks", viewRow.remarks || "—"],
               ].map(([label, val]) => (
                 <div key={label} className="flex items-start gap-3">
-                  <span className="text-xs font-semibold text-gray-500 w-36 flex-shrink-0 pt-0.5">
+                  <span className="text-xs font-semibold text-gray-500 w-32 flex-shrink-0 pt-0.5">
                     {label}
                   </span>
                   <span className="text-gray-800 font-medium break-words">
@@ -1068,10 +1851,30 @@ const OsPayoutRecordsView = ({
                 </div>
               ))}
             </div>
-            <div className="px-5 py-3 border-t">
+            <div className="px-5 py-3 border-t flex gap-2">
+              <button
+                onClick={() => {
+                  setViewRow(null);
+                  openBbModal(viewRow);
+                }}
+                className="flex-1 py-2 rounded-xl border-2 border-rose-200 text-rose-600 text-sm font-semibold hover:bg-rose-50 transition flex items-center justify-center gap-2"
+              >
+                <CornerDownLeft size={14} />
+                Add BB
+              </button>
+              <button
+                onClick={() => {
+                  setViewRow(null);
+                  startEdit(viewRow);
+                }}
+                className="flex-1 py-2 rounded-xl border-2 border-indigo-200 text-indigo-700 text-sm font-semibold hover:bg-indigo-50 transition flex items-center justify-center gap-2"
+              >
+                <Pencil size={14} />
+                Edit
+              </button>
               <button
                 onClick={() => setViewRow(null)}
-                className="w-full py-2 rounded-xl bg-gray-800 text-white text-sm font-semibold hover:bg-gray-900 transition"
+                className="flex-1 py-2 rounded-xl bg-gray-800 text-white text-sm font-semibold hover:bg-gray-900 transition"
               >
                 Close
               </button>
@@ -1121,11 +1924,9 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
   const [saved, setSaved] = useState(false);
   const [errors, setErrors] = useState({});
 
-  // ── VIEW RECORDS STATE ──
   const [showViewPage, setShowViewPage] = useState(false);
   const [showOsRecords, setShowOsRecords] = useState(false);
 
-  // ── Master data ──
   const [entities, setEntities] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [clients, setClients] = useState([]);
@@ -1135,7 +1936,7 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
   const [employees, setEmployees] = useState([]);
   const [internalTeam, setInternalTeam] = useState([]);
   const [invoices, setInvoices] = useState([]);
-  // ── Bulk upload state ──
+
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkMismatch, setBulkMismatch] = useState(null);
   const [bulkResult, setBulkResult] = useState(null);
@@ -1143,7 +1944,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
   const pendingValidRows = useRef([]);
   const pendingMasterData = useRef({});
 
-  // ── Internal Employee form ──
   const [intForm, setIntForm] = useState({
     entity: "",
     department: "",
@@ -1160,7 +1960,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
     remarks: "",
   });
 
-  // ── OS Payout form ──
   const [osForm, setOsForm] = useState({
     invoiceAvailable: "No",
     invoiceId: "",
@@ -1215,14 +2014,12 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
         .from("designation_master")
         .select("id, designation_name")
         .order("designation_name"),
-      // Fetch all employee_master records without server-side filtering
       supabase
         .from("employee_master")
         .select(
           "*, designation_master(designation_name), entity_master(entity_name), departments_master(dept_name), bank_master(bank_name)"
         )
         .order("employee_name"),
-      // Fetch all internal_team records without server-side filtering
       supabase
         .from("internal_team")
         .select("id, emp_code, name, entity, department, designation, status")
@@ -1240,7 +2037,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
     if (!b.error) setBanks(b.data || []);
     if (!ph.error) setPayHeads(ph.data || []);
     if (!des.error) setDesignations(des.data || []);
-    // Client-side filtering for employee_master
     if (!emp.error) {
       setEmployees(
         (emp.data || []).filter((r) => {
@@ -1253,7 +2049,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
         })
       );
     }
-    // Client-side filtering for internal_team
     if (!it.error) {
       setInternalTeam(
         (it.data || []).filter((r) => {
@@ -1268,7 +2063,9 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
   useEffect(() => {
     if (!intForm.empCode) return;
 
-    const emp = employees.find((e) => e.emp_code === intForm.empCode);
+    const emp = employees.find(
+      (e) => e.emp_code?.toUpperCase() === intForm.empCode?.toUpperCase()
+    );
     if (emp) {
       setIntForm((prev) => ({
         ...prev,
@@ -1280,7 +2077,9 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
       return;
     }
 
-    const it = internalTeam.find((e) => e.emp_code === intForm.empCode);
+    const it = internalTeam.find(
+      (e) => e.emp_code?.toUpperCase() === intForm.empCode?.toUpperCase()
+    );
     if (it) {
       setIntForm((prev) => ({
         ...prev,
@@ -1394,7 +2193,7 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
   };
 
   // ══════════════════════════════════════════════════════════════
-  // BULK UPLOAD
+  // BULK UPLOAD — FIXED: Fetch all & filter locally to avoid URI too long
   // ══════════════════════════════════════════════════════════════
   const handleExcelFileSelected = async (e) => {
     const file = e.target.files[0];
@@ -1426,31 +2225,71 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
         return;
       }
 
+      // Build a Set of normalized (uppercase) emp codes from Excel
       const excelCodes = [
         ...new Set(
           normalizedRows
-            .map((r) => String(r.emp_code || "").trim())
+            .map((r) =>
+              String(r.emp_code || "")
+                .trim()
+                .toUpperCase()
+            )
             .filter(Boolean)
         ),
       ];
-      const { data: empMasterRows } = await supabase
+
+      // Create a Set for fast lookup
+      const excelSet = new Set(excelCodes);
+
+      // FIX: Fetch ALL employee_master records (no .in() filter)
+      const { data: empMasterRows, error: empMasterError } = await supabase
         .from("employee_master")
         .select(
           "emp_code, employee_name, entity_master(entity_name), departments_master(dept_name), bank_master(bank_name, id), bank_id"
-        )
-        .in("emp_code", excelCodes);
-      const { data: internalTeamRows } = await supabase
-        .from("internal_team")
-        .select("emp_code, name, entity, department, bank_id")
-        .in("emp_code", excelCodes);
+        );
 
+      // FIX: Fetch ALL internal_team records (no .in() filter)
+      const { data: internalTeamRows, error: internalTeamError } =
+        await supabase
+          .from("internal_team")
+          .select("emp_code, name, entity, department, designation, status");
+
+      // Debug logs
+      console.log("Excel unique codes:", excelCodes.length);
+      console.log("employee_master total:", empMasterRows?.length || 0);
+      console.log("internal_team total:", internalTeamRows?.length || 0);
+      if (empMasterError) console.error("empMasterError:", empMasterError);
+      if (internalTeamError)
+        console.error("internalTeamError:", internalTeamError);
+
+      // FIX: Filter locally instead of using .in()
+      const filteredEmpMaster = (empMasterRows || []).filter((r) =>
+        excelSet.has(String(r.emp_code).trim().toUpperCase())
+      );
+      const filteredInternalTeam = (internalTeamRows || []).filter((r) =>
+        excelSet.has(String(r.emp_code).trim().toUpperCase())
+      );
+
+      console.log("Matched employee_master:", filteredEmpMaster.length);
+      console.log("Matched internal_team:", filteredInternalTeam.length);
+
+      // Build empMap with normalized uppercase keys
       const empMap = {};
-      (empMasterRows || []).forEach((r) => {
-        empMap[r.emp_code] = { source: "employee_master", ...r };
+      filteredEmpMaster.forEach((r) => {
+        empMap[String(r.emp_code).trim().toUpperCase()] = {
+          source: "employee_master",
+          ...r,
+        };
       });
-      (internalTeamRows || []).forEach((r) => {
-        if (!empMap[r.emp_code])
-          empMap[r.emp_code] = { source: "internal_team", ...r };
+
+      filteredInternalTeam.forEach((r) => {
+        const code = String(r.emp_code).trim().toUpperCase();
+        if (!empMap[code]) {
+          empMap[code] = {
+            source: "internal_team",
+            ...r,
+          };
+        }
       });
 
       const entityMap = {};
@@ -1471,7 +2310,10 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
       const validRows = [],
         mismatchRows = [];
       normalizedRows.forEach((row) => {
-        const code = String(row.emp_code || "").trim();
+        const code = String(row.emp_code || "")
+          .trim()
+          .toUpperCase();
+
         if (!code) {
           mismatchRows.push({ ...row, reason: "Empty emp_code" });
         } else if (empMap[code]) {
@@ -1479,19 +2321,27 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
         } else {
           mismatchRows.push({
             ...row,
-            reason: `emp_code "${code}" not in employee master`,
+            reason: `emp_code "${code}" not in employee master or internal team`,
           });
         }
       });
       pendingValidRows.current = validRows;
 
+      // CHANGE 3: Store file.name in bulkMismatch state
       if (mismatchRows.length > 0) {
         setBulkMismatch({
           matched: validRows.length,
           mismatches: mismatchRows,
+          fileName: file.name,
         });
       } else {
-        await executeUpload(validRows, pendingMasterData.current);
+        // CHANGE 3: Pass file.name when calling executeUpload
+        await executeUpload(
+          validRows,
+          pendingMasterData.current,
+          [],
+          file.name
+        );
       }
     } catch (err) {
       alert("❌ Failed to process Excel: " + err.message);
@@ -1500,6 +2350,7 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
     }
   };
 
+  // CHANGE 3: Updated to pass fileName from bulkMismatch
   const handleProceedWithMatched = async () => {
     setBulkMismatch(null);
     setBulkLoading(true);
@@ -1513,15 +2364,53 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
     await executeUpload(
       pendingValidRows.current,
       pendingMasterData.current,
-      skippedDetails
+      skippedDetails,
+      bulkMismatch?.fileName || ""
     );
     setBulkLoading(false);
   };
 
-  const executeUpload = async (validRows, masterData, existingSkipped = []) => {
+  // CHANGE 1: Updated executeUpload to generate batch and save batch columns
+  const executeUpload = async (
+    validRows,
+    masterData,
+    existingSkipped = [],
+    fileName = ""
+  ) => {
     const { empMap, entityMap, deptMap, bankMap } = masterData;
     let added = 0;
     const failedDetails = [];
+
+    // ── Generate batch code and create batch record ──
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, "0");
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const yyyy = now.getFullYear();
+    const batchCode = `BULK_${dd}${mm}${yyyy}_${Date.now()
+      .toString()
+      .slice(-4)}`;
+    const totalAmount = validRows.reduce(
+      (s, r) => s + (parseFloat(r.payment_amount) || 0),
+      0
+    );
+
+    const { data: batchRow, error: batchErr } = await supabase
+      .from("bulk_upload_batches")
+      .insert({
+        batch_code: batchCode,
+        file_name: fileName,
+        employee_count: validRows.length,
+        total_amount: totalAmount,
+        upload_date: now.toISOString(),
+      })
+      .select()
+      .single();
+
+    if (batchErr) {
+      alert("Failed to create batch record: " + batchErr.message);
+      return;
+    }
+
     for (const row of validRows) {
       try {
         const emp = row._empData;
@@ -1558,6 +2447,8 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
         const dateOfPay = excelDateToString(row.date_of_pay);
         if (!dateOfPay)
           throw new Error("Invalid date_of_pay: " + row.date_of_pay);
+
+        // CHANGE 2: Added batch columns to payload
         const payload = {
           emp_code: String(row.emp_code).trim(),
           employee_name:
@@ -1575,6 +2466,11 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
           bank_id: bankId,
           bank_name: row.bank_name || emp?.bank_master?.bank_name || "",
           remarks: row.remarks || "",
+          entry_type: "bulk",
+          bulk_batch_id: batchRow.id,
+          bulk_batch_code: batchCode,
+          bulk_file_name: fileName,
+          bulk_upload_date: now.toISOString(),
         };
         const { error: insertErr } = await supabase
           .from("employee_expense_payouts")
@@ -1640,6 +2536,7 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
         bank_name:
           banks.find((b) => b.id === intForm.bankId)?.bank_name || null,
         remarks: intForm.remarks,
+        entry_type: "single",
       };
       const { data: savedPayment, error } = await supabase
         .from("employee_expense_payouts")
@@ -1673,17 +2570,43 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
   };
 
   // ══════════════════════════════════════════════════════════════
-  // SAVE OS — TRIGGER HANDLES BANK ENTRY + OUTSTANDING AMOUNT
+  // SAVE OS
   // ══════════════════════════════════════════════════════════════
   const saveOS = async () => {
     if (!validateOS()) return;
     setLoading(true);
     try {
       let payload;
-
+  
       if (osForm.invoiceAvailable === "Yes") {
         const inv = invoices.find((i) => i.id === osForm.invoiceId);
-
+  
+        // ── Validate against net_in_hand ──
+        if (inv?.net_in_hand > 0) {
+          const { data: existingPayouts } = await supabase
+            .from("os_payouts")
+            .select("amount_paid, bounce_back_amount, income_tax_deducted")
+            .eq("invoice_id", osForm.invoiceId);
+  
+          const alreadyPaid = (existingPayouts || []).reduce((s, p) =>
+            s + Math.max(
+              Number(p.amount_paid || 0) - Number(p.bounce_back_amount || 0) - Number(p.income_tax_deducted || 0),
+              0
+            ), 0);
+  
+          const thisAmount = parseFloat(osForm.amountPaid) || 0;
+          const remaining = Number(inv.net_in_hand) - alreadyPaid;
+  
+          if (thisAmount > remaining) {
+            setErrors((p) => ({
+              ...p,
+              amountPaid: `Exceeds remaining Net-in-Hand. Available: ₹${remaining.toLocaleString("en-IN")}, You entered: ₹${thisAmount.toLocaleString("en-IN")}`,
+            }));
+            setLoading(false);
+            return;
+          }
+        }
+  
         payload = {
           invoice_id: osForm.invoiceId || null,
           entity_id: inv?.entity_id || null,
@@ -1730,10 +2653,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
         };
       }
 
-      // 1) Insert os_payout - DB trigger auto-creates:
-      //    - bank_entries (using net amount: amount_paid - income_tax_deducted)
-      //    - payout_bank_entries
-      //    - Updates invoices.receivable_amount if billable
       const { data: savedPayout, error: payoutErr } = await supabase
         .from("os_payouts")
         .insert([payload])
@@ -1741,7 +2660,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
         .single();
       if (payoutErr) throw payoutErr;
 
-      // 2) Only create TDS liability - everything else handled by DB trigger
       const taxAmt =
         parseFloat(
           osForm.invoiceAvailable === "Yes"
@@ -1775,7 +2693,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
 
   if (!isOpen) return null;
 
-  // ── pay_head_master uses column `name` (not `pay_head_name`) ──
   const internalHeads = payHeads
     .filter((p) => p.payout_type === "INTERNAL")
     .map((p) => p.name);
@@ -1896,18 +2813,19 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
               value={intForm.empCode}
               onChange={(v) => setInt("empCode", v)}
               options={[
-                // internal_team is primary source
                 ...internalTeam.map((it) => ({
                   value: it.emp_code,
                   label: `${it.emp_code} – ${it.name}`,
                   _source: "internal_team",
                 })),
-                // employee_master as fallback — only show if not already in internal_team
                 ...employees
                   .filter(
                     (e) =>
-                      !internalTeam.some((it) => it.emp_code === e.emp_code) &&
-                      !e.emp_code?.toLowerCase().includes("old")
+                      !internalTeam.some(
+                        (it) =>
+                          it.emp_code?.toUpperCase() ===
+                          e.emp_code?.toUpperCase()
+                      ) && !e.emp_code?.toLowerCase().includes("old")
                   )
                   .map((e) => ({
                     value: e.emp_code,
@@ -2727,7 +3645,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
             className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col pointer-events-auto overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* ── Header ── */}
             <div
               className={`flex items-center justify-between px-6 py-4 bg-gradient-to-r ${hc.gradient} text-white flex-shrink-0`}
             >
@@ -2755,7 +3672,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {/* View Internal Records */}
                 <button
                   onClick={() => setShowViewPage(true)}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 text-white transition-all text-xs font-semibold"
@@ -2763,7 +3679,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
                   <Users className="w-3.5 h-3.5" />
                   Internal Records
                 </button>
-                {/* View OS Records */}
                 <button
                   onClick={() => setShowOsRecords(true)}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 text-white transition-all text-xs font-semibold"
@@ -2779,7 +3694,6 @@ const AddExpenseDetailsManModal = ({ isOpen, onClose, onSaved }) => {
                 </button>
               </div>
             </div>
-            {/* ── Content ── */}
             <div className="flex-1 overflow-hidden">
               <AnimatePresence mode="wait">
                 {!selectedOption && (

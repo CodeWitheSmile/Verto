@@ -25,6 +25,7 @@ import {
   Calendar,
   SlidersHorizontal,
   Users,
+  ShieldCheck,
 } from "lucide-react";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -91,8 +92,7 @@ const SearchableInvoiceDropdown = ({
               ? "opacity-50 cursor-not-allowed border-gray-100"
               : "cursor-pointer hover:border-violet-300 border-gray-200"
           }
-          ${open ? "border-violet-500 ring-4 ring-violet-500/10" : ""}
-        `}
+          ${open ? "border-violet-500 ring-4 ring-violet-500/10" : ""}`}
       >
         <span
           className={selected ? "text-gray-900 font-semibold" : "text-gray-400"}
@@ -130,7 +130,6 @@ const SearchableInvoiceDropdown = ({
                 />
               </div>
             </div>
-
             <div className="max-h-64 overflow-y-auto">
               {filtered.length === 0 ? (
                 <div className="py-8 text-center text-gray-400 text-xs font-medium">
@@ -143,8 +142,7 @@ const SearchableInvoiceDropdown = ({
                     type="button"
                     onClick={() => handleSelect(inv)}
                     className={`w-full text-left flex items-start gap-3 px-4 py-2.5 hover:bg-violet-50 transition-colors border-b border-gray-50 last:border-b-0
-                      ${inv.invoice_number === value ? "bg-violet-50" : ""}
-                    `}
+                      ${inv.invoice_number === value ? "bg-violet-50" : ""}`}
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -187,7 +185,6 @@ const SearchableInvoiceDropdown = ({
                 ))
               )}
             </div>
-
             <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-[10px] text-gray-400">
               {filtered.length} of {invoiceList.length} invoices
             </div>
@@ -220,7 +217,6 @@ const InvoiceCard = ({ d }) => (
         </span>
       </div>
     </div>
-
     <div className="px-4 py-2 bg-blue-50 border-b border-blue-100 flex items-center gap-4">
       <span className="text-xs font-semibold text-blue-900">{d.client}</span>
       <span className="text-[10px] text-blue-400">·</span>
@@ -228,7 +224,6 @@ const InvoiceCard = ({ d }) => (
       <span className="text-[10px] text-blue-400">·</span>
       <span className="text-xs text-blue-500">{d.ledger}</span>
     </div>
-
     <div className="grid grid-cols-5 divide-x divide-gray-100 text-center">
       {[
         {
@@ -280,6 +275,68 @@ const InvoiceCard = ({ d }) => (
       ))}
     </div>
 
+    {/* Statutory breakdown row — only shown if invoice has any statutory amounts */}
+    {num(d.co_pf) +
+      num(d.co_esi) +
+      num(d.lwf_tax) +
+      num(d.pt_tax) +
+      num(d.other_ded) >
+      0 && (
+      <div className="border-t border-blue-100 bg-blue-50/50">
+        <div className="px-4 py-1.5">
+          <p className="text-[9px] uppercase tracking-wider text-blue-500 font-bold mb-1.5 flex items-center gap-1">
+            <ShieldCheck className="w-3 h-3" /> Statutory Breakdown (Net
+            Remaining)
+          </p>
+          <div className="grid grid-cols-5 gap-1">
+            {[
+              {
+                label: "CO PF",
+                value: d.net_co_pf,
+                sub: `ER ₹${fmt(d.net_er_pf)} + EE ₹${fmt(d.net_ee_pf)}`,
+                color: "text-indigo-700 bg-indigo-50 border-indigo-200",
+              },
+              {
+                label: "CO ESI",
+                value: d.net_co_esi,
+                sub: `ER ₹${fmt(d.net_er_esic)} + EE ₹${fmt(d.net_ee_esic)}`,
+                color: "text-teal-700 bg-teal-50 border-teal-200",
+              },
+              {
+                label: "LWF",
+                value: d.net_lwf_tax,
+                sub: null,
+                color: "text-orange-700 bg-orange-50 border-orange-200",
+              },
+              {
+                label: "PT",
+                value: d.net_pt_tax,
+                sub: null,
+                color: "text-purple-700 bg-purple-50 border-purple-200",
+              },
+              {
+                label: "Other Ded",
+                value: d.net_other_ded,
+                sub: null,
+                color: "text-gray-700 bg-gray-50 border-gray-200",
+              },
+            ].map(({ label, value, sub, color }) => (
+              <div
+                key={label}
+                className={`rounded-lg border px-2 py-1.5 text-center ${color}`}
+              >
+                <p className="text-[9px] font-bold uppercase tracking-wide">
+                  {label}
+                </p>
+                <p className="text-xs font-black mt-0.5">₹{fmt(value)}</p>
+                {sub && <p className="text-[8px] mt-0.5 opacity-70">{sub}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )}
+
     {d.cnAmount > 0 && (
       <div className="px-4 py-1.5 bg-violet-50 border-t border-violet-100 text-xs text-violet-700 font-medium">
         Existing CN/BD: ₹{fmt(d.cnAmount)} already applied
@@ -295,7 +352,6 @@ const CNRecordsPanel = ({ onClose }) => {
   const [deletingId, setDeletingId] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
   const [toast, setToast] = useState(null);
-
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("All");
   const [filterMonth, setFilterMonth] = useState("All");
@@ -315,6 +371,7 @@ const CNRecordsPanel = ({ onClose }) => {
         `
         id, reference_no, invoice_number, type, amount,
         pay_cn, verto_fee_cn, gst_cn, tds_cn,
+        er_pf, ee_pf, er_esic, ee_esic, lwf_cn, pt_cn, other_ded_cn,
         issue_date, entity, bank_name, remarks, invoice_id, created_at,
         invoices ( invoice_number, client_id, clients_master ( client_name ) )
       `
@@ -385,6 +442,7 @@ const CNRecordsPanel = ({ onClose }) => {
       setSortDir("desc");
     }
   };
+
   const SortIcon = ({ field }) => {
     if (sortField !== field)
       return <ArrowUpDown className="w-3 h-3 text-gray-400" />;
@@ -397,7 +455,6 @@ const CNRecordsPanel = ({ onClose }) => {
 
   const processed = useMemo(() => {
     let list = [...records];
-
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(
@@ -422,7 +479,6 @@ const CNRecordsPanel = ({ onClose }) => {
         return key === filterMonth;
       });
     }
-
     list.sort((a, b) => {
       let av, bv;
       if (sortField === "amount") {
@@ -441,12 +497,10 @@ const CNRecordsPanel = ({ onClose }) => {
         av = a.created_at || "";
         bv = b.created_at || "";
       }
-
       if (av < bv) return sortDir === "asc" ? -1 : 1;
       if (av > bv) return sortDir === "asc" ? 1 : -1;
       return 0;
     });
-
     return list;
   }, [records, search, filterType, filterMonth, sortField, sortDir]);
 
@@ -496,7 +550,6 @@ const CNRecordsPanel = ({ onClose }) => {
             className="w-full pl-8 pr-3 py-2 text-xs bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-500/10"
           />
         </div>
-
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1">
             {["All", "CN", "Bad Debt"].map((t) => (
@@ -515,7 +568,6 @@ const CNRecordsPanel = ({ onClose }) => {
               </button>
             ))}
           </div>
-
           <select
             value={filterMonth}
             onChange={(e) => setFilterMonth(e.target.value)}
@@ -528,7 +580,6 @@ const CNRecordsPanel = ({ onClose }) => {
               </option>
             ))}
           </select>
-
           <div className="ml-auto flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1">
             <SlidersHorizontal className="w-3 h-3 text-gray-400 ml-1" />
             {[
@@ -582,7 +633,18 @@ const CNRecordsPanel = ({ onClose }) => {
                 num(row.gst_cn) +
                 num(row.tds_cn) >
               0;
+            const hasStatutory =
+              num(row.er_pf) +
+                num(row.ee_pf) +
+                num(row.er_esic) +
+                num(row.ee_esic) +
+                num(row.lwf_cn) +
+                num(row.pt_cn) +
+                num(row.other_ded_cn) >
+              0;
             const isBadDebt = row.type === "Bad Debt";
+            const co_pf_cn = num(row.er_pf) + num(row.ee_pf);
+            const co_esi_cn = num(row.er_esic) + num(row.ee_esic);
 
             return (
               <div
@@ -662,6 +724,7 @@ const CNRecordsPanel = ({ onClose }) => {
                     )}
                   </div>
 
+                  {/* Financial breakdown chips */}
                   {hasBreakdown && (
                     <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
                       {num(row.pay_cn) > 0 && (
@@ -687,6 +750,47 @@ const CNRecordsPanel = ({ onClose }) => {
                     </div>
                   )}
 
+                  {/* Statutory breakdown chips */}
+                  {hasStatutory && (
+                    <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+                      <span className="text-[9px] text-indigo-500 font-bold uppercase tracking-wider flex items-center gap-0.5">
+                        <ShieldCheck className="w-2.5 h-2.5" />
+                        Statutory:
+                      </span>
+                      {co_pf_cn > 0 && (
+                        <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-medium">
+                          CO PF ₹{fmt(co_pf_cn)}{" "}
+                          <span className="opacity-60">
+                            (ER ₹{fmt(row.er_pf)}+EE ₹{fmt(row.ee_pf)})
+                          </span>
+                        </span>
+                      )}
+                      {co_esi_cn > 0 && (
+                        <span className="text-[10px] bg-teal-100 text-teal-700 px-2 py-0.5 rounded font-medium">
+                          CO ESI ₹{fmt(co_esi_cn)}{" "}
+                          <span className="opacity-60">
+                            (ER ₹{fmt(row.er_esic)}+EE ₹{fmt(row.ee_esic)})
+                          </span>
+                        </span>
+                      )}
+                      {num(row.lwf_cn) > 0 && (
+                        <span className="text-[10px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded font-medium">
+                          LWF ₹{fmt(row.lwf_cn)}
+                        </span>
+                      )}
+                      {num(row.pt_cn) > 0 && (
+                        <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-medium">
+                          PT ₹{fmt(row.pt_cn)}
+                        </span>
+                      )}
+                      {num(row.other_ded_cn) > 0 && (
+                        <span className="text-[10px] bg-gray-100 text-gray-700 px-2 py-0.5 rounded font-medium">
+                          Other ₹{fmt(row.other_ded_cn)}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 flex-wrap">
                       {row.remarks && (
@@ -695,7 +799,6 @@ const CNRecordsPanel = ({ onClose }) => {
                         </span>
                       )}
                     </div>
-
                     <div className="flex-shrink-0">
                       {deletingId === row.id ? (
                         <Loader2 className="w-4 h-4 animate-spin text-violet-400" />
@@ -759,6 +862,39 @@ const CNRecordsPanel = ({ onClose }) => {
   );
 };
 
+// ─── Statutory Amount Input Row ───────────────────────────────────────────────
+const StatutoryInputRow = ({
+  label,
+  fieldKey,
+  value,
+  hint,
+  onChange,
+  colorClass,
+  disabled,
+}) => (
+  <div>
+    <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
+      {label}
+      {hint && (
+        <span className="ml-1 text-gray-400 font-normal normal-case">
+          (Net: ₹{fmt(hint)})
+        </span>
+      )}
+    </label>
+    <input
+      type="text"
+      inputMode="decimal"
+      value={value}
+      onChange={(e) => onChange(fieldKey, e.target.value)}
+      disabled={disabled}
+      className={`w-full bg-white border text-gray-900 px-3 py-2 rounded-lg focus:outline-none text-sm ${
+        disabled ? "opacity-50 cursor-not-allowed" : ""
+      } ${colorClass}`}
+      placeholder="₹ 0"
+    />
+  </div>
+);
+
 // ─── Main Modal ────────────────────────────────────────────────────────────────
 const AddCNBadDebtModal = ({
   isOpen,
@@ -776,6 +912,12 @@ const AddCNBadDebtModal = ({
     vertoFeeCN: "",
     gstCN: "",
     tdsCN: "",
+    // Statutory fields
+    coPf: "",
+    coEsi: "",
+    lwfCN: "",
+    ptCN: "",
+    otherDedCN: "",
     employeeCount: "",
     remarks: "",
   };
@@ -790,10 +932,10 @@ const AddCNBadDebtModal = ({
   const [invoiceList, setInvoiceList] = useState([]);
   const refCheckTimer = useRef(null);
 
-  // ── Fetch full invoice list for dropdown ────────────────────────────────────
+  // ── Fetch invoice list ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!isOpen) return;
-    const fetch = async () => {
+    const fetchList = async () => {
       const { data } = await supabase
         .from("outstanding_invoice_view")
         .select(
@@ -802,7 +944,7 @@ const AddCNBadDebtModal = ({
         .order("invoice_number", { ascending: false });
       setInvoiceList(data || []);
     };
-    fetch();
+    fetchList();
   }, [isOpen]);
 
   // ── Populate from editData ──────────────────────────────────────────────────
@@ -817,6 +959,11 @@ const AddCNBadDebtModal = ({
         vertoFeeCN: editData.verto_fee_cn || "",
         gstCN: editData.gst_cn || "",
         tdsCN: editData.tds_cn || "",
+        coPf: editData.er_pf || "",
+        coEsi: editData.er_esic || "",
+        lwfCN: editData.lwf_cn || "",
+        ptCN: editData.pt_cn || "",
+        otherDedCN: editData.other_ded_cn || "",
         employeeCount: editData.employee_count || "",
         remarks: editData.remarks || "",
       });
@@ -828,7 +975,7 @@ const AddCNBadDebtModal = ({
     if (errors[field]) setErrors((p) => ({ ...p, [field]: "" }));
   };
 
-  // ── Real-time reference_no uniqueness check ─────────────────────────────────
+  // ── Reference uniqueness check ──────────────────────────────────────────────
   useEffect(() => {
     const val = formData.referenceNo.trim();
     if (!val) {
@@ -852,7 +999,6 @@ const AddCNBadDebtModal = ({
   }, [formData.referenceNo]);
 
   // ── Auto-populate invoice details ──────────────────────────────────────────
-  // ── Auto-populate invoice details (net_* values = CN-adjusted remaining) ──
   useEffect(() => {
     const fetchDetails = async () => {
       if (!formData.invoiceOrRef) {
@@ -861,7 +1007,6 @@ const AddCNBadDebtModal = ({
       }
 
       let invoiceId = null;
-
       const { data: pay } = await supabase
         .from("payments_received")
         .select("invoice_id")
@@ -877,7 +1022,6 @@ const AddCNBadDebtModal = ({
           .maybeSingle();
         invoiceId = inv?.id;
       }
-
       if (!invoiceId) {
         setSelectedDetails(null);
         return;
@@ -888,7 +1032,6 @@ const AddCNBadDebtModal = ({
         .select("*")
         .eq("id", invoiceId)
         .maybeSingle();
-
       if (!data) {
         setSelectedDetails(null);
         return;
@@ -900,10 +1043,16 @@ const AddCNBadDebtModal = ({
         .eq("id", invoiceId)
         .maybeSingle();
 
-      // Use net_* for base rates (CN-adjusted remaining amounts)
       const netBase = num(data.net_pay) + num(data.net_verto_fee);
       const gstRate = netBase ? num(data.net_gst) / netBase : 0;
       const tdsRate = netBase ? num(data.net_tds) / netBase : 0;
+
+      // Compute net ER/EE PF and ESIC from invoice's co_pf / co_esi
+      // Standard PF split: ER PF = 13%, EE PF = 12% of basic
+      // But we don't know the split stored. Use 50/50 as default hint if not split stored.
+      // The invoice stores co_pf and co_esi as totals — we expose both as hints.
+      const net_co_pf = num(data.net_co_pf ?? data.co_pf ?? 0);
+      const net_co_esi = num(data.net_co_esi ?? data.co_esi ?? 0);
 
       setSelectedDetails({
         invoice_id: data.id,
@@ -914,18 +1063,43 @@ const AddCNBadDebtModal = ({
         dept_code: data.dept_code,
         entity: data.entity_name,
 
-        // ✅ FIXED: raw originals use net_* (CN-adjusted remaining)
-        // so hints show "Remaining: ₹X" not the original full invoice amount
         pay: data.net_pay ?? data.pay ?? 0,
         vertoFee: data.net_verto_fee ?? data.verto_fee ?? 0,
         gst: data.net_gst ?? data.gst ?? 0,
         tds: data.net_tds ?? data.tds ?? 0,
 
-        // net values (same as above — used for limit calculations)
         netPay: data.net_pay ?? data.pay ?? 0,
         netVertoFee: data.net_verto_fee ?? data.verto_fee ?? 0,
         netGst: data.net_gst ?? data.gst ?? 0,
         netTds: data.net_tds ?? data.tds ?? 0,
+
+        // Statutory originals from invoice
+        co_pf: data.co_pf ?? 0,
+        co_esi: data.co_esi ?? 0,
+        lwf_tax: data.lwf_tax ?? 0,
+        pt_tax: data.pt_tax ?? 0,
+        other_ded: data.other_ded ?? 0,
+
+        // Net statutory after existing CNs
+        net_co_pf,
+        net_co_esi,
+        net_lwf_tax: data.net_lwf_tax ?? data.lwf_tax ?? 0,
+        net_pt_tax: data.net_pt_tax ?? data.pt_tax ?? 0,
+        net_other_ded: data.net_other_ded ?? data.other_ded ?? 0,
+
+        // Half-split hint for ER/EE (for display only — user enters actual split)
+        net_er_pf: +(net_co_pf / 2).toFixed(2),
+        net_ee_pf: +(net_co_pf / 2).toFixed(2),
+        net_er_esic: +(net_co_esi / 2).toFixed(2),
+        net_ee_esic: +(net_co_esi / 2).toFixed(2),
+
+        hasStatutory:
+          num(data.co_pf) +
+            num(data.co_esi) +
+            num(data.lwf_tax) +
+            num(data.pt_tax) +
+            num(data.other_ded) >
+          0,
 
         gstRate,
         tdsRate,
@@ -940,37 +1114,7 @@ const AddCNBadDebtModal = ({
     fetchDetails();
   }, [formData.invoiceOrRef]);
 
-  // ── Derived totals ─────────────────────────────────────────────────────────
-  const totalCN =
-    num(formData.payCN) +
-    num(formData.vertoFeeCN) +
-    num(formData.gstCN) +
-    num(formData.tdsCN);
-
-  // ── ✅ FIXED: maxCN = min(invoice excl. TDS, outstanding) ──────────────────
-  // Rule 1: CN cannot exceed invoice value minus TDS (TDS is govt liability)
-  const invoiceMinusTds = selectedDetails
-    ? num(selectedDetails.netPay) +
-      num(selectedDetails.netVertoFee) +
-      num(selectedDetails.netGst)
-    : Infinity;
-
-  // Rule 2: CN cannot exceed outstanding amount (can't CN more than what's owed)
-  const maxCN = selectedDetails
-    ? Math.min(invoiceMinusTds, num(selectedDetails.amountPayable))
-    : Infinity;
-
-  // Which cap triggered (for error messages)
-  const limitedByOutstanding =
-    selectedDetails && num(selectedDetails.amountPayable) < invoiceMinusTds;
-
-  const overLimit = selectedDetails && totalCN > maxCN;
-
-  const impactOutstanding = selectedDetails
-    ? Math.max(0, num(selectedDetails.amountPayable) - totalCN)
-    : null;
-
-  // ── Auto-calc GST/TDS from net rates when pay or vertoFee changes ──────────
+  // ── Auto-calc GST/TDS from net rates ───────────────────────────────────────
   useEffect(() => {
     if (!selectedDetails) return;
     const baseCN = num(formData.payCN) + num(formData.vertoFeeCN);
@@ -983,6 +1127,42 @@ const AddCNBadDebtModal = ({
       tdsCN: tdsCN ? tdsCN.toString() : "",
     }));
   }, [formData.payCN, formData.vertoFeeCN, selectedDetails]);
+
+  // ── Derived totals ─────────────────────────────────────────────────────────
+  const totalFinancialCN =
+    num(formData.payCN) +
+    num(formData.vertoFeeCN) +
+    num(formData.gstCN) +
+    num(formData.tdsCN);
+
+  const totalStatutoryCN =
+    num(formData.coPf) +
+    num(formData.coEsi) +
+    num(formData.lwfCN) +
+    num(formData.ptCN) +
+    num(formData.otherDedCN);
+
+  const totalCN = totalFinancialCN + totalStatutoryCN;
+
+  // Computed display aggregates
+  const co_pf_cn = num(formData.coPf);
+  const co_esi_cn = num(formData.coEsi);
+
+  // ── Max CN limit ────────────────────────────────────────────────────────────
+  const invoiceMinusTds = selectedDetails
+    ? num(selectedDetails.netPay) +
+      num(selectedDetails.netVertoFee) +
+      num(selectedDetails.netGst)
+    : Infinity;
+  const maxCN = selectedDetails
+    ? Math.min(invoiceMinusTds, num(selectedDetails.amountPayable))
+    : Infinity;
+  const limitedByOutstanding =
+    selectedDetails && num(selectedDetails.amountPayable) < invoiceMinusTds;
+  const overLimit = selectedDetails && totalCN > maxCN;
+  const impactOutstanding = selectedDetails
+    ? Math.max(0, num(selectedDetails.amountPayable) - totalCN)
+    : null;
 
   // ── Validation ─────────────────────────────────────────────────────────────
   const validateForm = () => {
@@ -997,27 +1177,64 @@ const AddCNBadDebtModal = ({
       e.referenceNo = "Wait for reference check to complete";
     if (!formData.dateIssued) e.dateIssued = "Date is required";
     if (totalCN <= 0)
-      e.payCN = "Enter at least one amount (Pay / Verto Fee / GST / TDS)";
+      e.payCN =
+        "Enter at least one amount across Financial or Statutory fields";
 
-    // ✅ FIXED: clear error message that explains which limit was hit
     if (overLimit) {
       if (limitedByOutstanding) {
-        e.payCN = `CN total ₹${fmt(
-          totalCN
-        )} exceeds the outstanding amount ₹${fmt(
+        e.payCN = `Total ₹${fmt(totalCN)} exceeds outstanding ₹${fmt(
           num(selectedDetails.amountPayable)
-        )} — you cannot CN more than what is owed`;
+        )}`;
       } else {
-        e.payCN = `CN total ₹${fmt(
+        e.payCN = `Total ₹${fmt(
           totalCN
-        )} exceeds invoice value excl. TDS ₹${fmt(
-          invoiceMinusTds
-        )} (Net Pay + Net Verto + Net GST) — TDS is a govt. liability and cannot be written off`;
+        )} exceeds invoice value excl. TDS ₹${fmt(invoiceMinusTds)}`;
       }
     }
 
-    if (selectedDetails?.dept_code === "OS" && !formData.employeeCount)
+    // Validate co_pf does not exceed net_co_pf
+    if (selectedDetails && co_pf_cn > num(selectedDetails.net_co_pf)) {
+      e.erPf = `CO PF (ER+EE) ₹${fmt(co_pf_cn)} exceeds net remaining ₹${fmt(
+        selectedDetails.net_co_pf
+      )}`;
+    }
+    // Validate co_esi does not exceed net_co_esi
+    if (selectedDetails && co_esi_cn > num(selectedDetails.net_co_esi)) {
+      e.erEsic = `CO ESI (ER+EE) ₹${fmt(
+        co_esi_cn
+      )} exceeds net remaining ₹${fmt(selectedDetails.net_co_esi)}`;
+    }
+    // LWF limit
+    if (
+      selectedDetails &&
+      num(formData.lwfCN) > num(selectedDetails.net_lwf_tax)
+    ) {
+      e.lwfCN = `LWF ₹${fmt(formData.lwfCN)} exceeds net remaining ₹${fmt(
+        selectedDetails.net_lwf_tax
+      )}`;
+    }
+    // PT limit
+    if (
+      selectedDetails &&
+      num(formData.ptCN) > num(selectedDetails.net_pt_tax)
+    ) {
+      e.ptCN = `PT ₹${fmt(formData.ptCN)} exceeds net remaining ₹${fmt(
+        selectedDetails.net_pt_tax
+      )}`;
+    }
+    // Other Ded limit
+    if (
+      selectedDetails &&
+      num(formData.otherDedCN) > num(selectedDetails.net_other_ded)
+    ) {
+      e.otherDedCN = `Other Ded ₹${fmt(
+        formData.otherDedCN
+      )} exceeds net remaining ₹${fmt(selectedDetails.net_other_ded)}`;
+    }
+
+    if (selectedDetails?.dept_code === "OS" && !formData.employeeCount) {
       e.employeeCount = "Employee count required for Operations";
+    }
 
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -1050,8 +1267,15 @@ const AddCNBadDebtModal = ({
             : null,
         p_remarks: formData.remarks || "",
         p_bank_name: selectedDetails.bankName || null,
+        // Statutory params
+        p_er_pf: num(formData.coPf),
+        p_ee_pf: 0,
+        p_er_esic: num(formData.coEsi),
+        p_ee_esic: 0,
+        p_lwf_cn: num(formData.lwfCN),
+        p_pt_cn: num(formData.ptCN),
+        p_other_ded_cn: num(formData.otherDedCN),
       });
-
       if (error) throw error;
 
       window.refreshDashboard?.();
@@ -1099,6 +1323,9 @@ const AddCNBadDebtModal = ({
       return <XCircle className="w-4 h-4 text-red-500" />;
     return null;
   };
+
+  // Whether the selected invoice has statutory amounts worth showing
+  const showStatutorySection = selectedDetails?.hasStatutory;
 
   return (
     <AnimatePresence>
@@ -1191,7 +1418,6 @@ const AddCNBadDebtModal = ({
                   <h3 className="text-sm font-bold text-blue-900 uppercase tracking-wider mb-4 flex items-center gap-2">
                     <FileX className="w-4 h-4" /> Reference Details
                   </h3>
-
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
@@ -1209,7 +1435,6 @@ const AddCNBadDebtModal = ({
                         Auto-populates details below
                       </p>
                     </div>
-
                     <div>
                       <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
                         CN / BD Reference No.{" "}
@@ -1259,11 +1484,10 @@ const AddCNBadDebtModal = ({
                       <ErrorMsg field="referenceNo" />
                     </div>
                   </div>
-
                   {selectedDetails && <InvoiceCard d={selectedDetails} />}
                 </div>
 
-                {/* ── Amount Breakdown ── */}
+                {/* ── Financial Amount Breakdown ── */}
                 <div
                   className={`border-2 rounded-xl p-4 ${
                     formData.optionType === "Bad Debt"
@@ -1279,24 +1503,21 @@ const AddCNBadDebtModal = ({
                           : "text-violet-900"
                       }`}
                     >
-                      {formData.optionType} Amount Breakdown
+                      {formData.optionType} Financial Breakdown
                     </h3>
-                    {totalCN > 0 && (
+                    {totalFinancialCN > 0 && (
                       <span
                         className={`text-sm font-bold px-3 py-1 rounded-lg ${
-                          overLimit
-                            ? "bg-red-100 text-red-700"
-                            : formData.optionType === "Bad Debt"
+                          formData.optionType === "Bad Debt"
                             ? "bg-red-100 text-red-700"
                             : "bg-violet-100 text-violet-700"
                         }`}
                       >
-                        Total: ₹{fmt(totalCN)}
+                        Financial: ₹{fmt(totalFinancialCN)}
                       </span>
                     )}
                   </div>
 
-                  {/* ✅ Limit info banner — shows user the active cap before they hit it */}
                   {selectedDetails && (
                     <div className="mb-4 flex items-center gap-3 text-[11px] bg-white border border-gray-200 rounded-lg px-3 py-2">
                       <span className="text-gray-500 font-medium">
@@ -1314,6 +1535,7 @@ const AddCNBadDebtModal = ({
                   )}
 
                   <div className="grid grid-cols-2 gap-4">
+                    {/* Date */}
                     <div className="col-span-2 grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
@@ -1430,7 +1652,6 @@ const AddCNBadDebtModal = ({
                       </p>
                     </div>
                   </div>
-
                   <ErrorMsg field="payCN" />
 
                   {/* Employee count for OS */}
@@ -1441,8 +1662,8 @@ const AddCNBadDebtModal = ({
                       className="mt-4"
                     >
                       <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2 flex items-center gap-1">
-                        <Users className="w-3.5 h-3.5" />
-                        Employee Count <span className="text-red-500">*</span>
+                        <Users className="w-3.5 h-3.5" /> Employee Count{" "}
+                        <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="number"
@@ -1462,7 +1683,245 @@ const AddCNBadDebtModal = ({
                   )}
                 </div>
 
-                {/* Remarks */}
+                {/* ── Statutory Description Section ── */}
+                <AnimatePresence>
+                  {showStatutorySection && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      className="border-2 border-indigo-200 rounded-xl overflow-hidden"
+                    >
+                      {/* Section Header */}
+                      <div className="bg-gradient-to-r from-indigo-600 to-indigo-700 px-4 py-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <ShieldCheck className="w-4 h-4 text-indigo-100" />
+                          <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                            Statutory Description
+                          </h3>
+                        </div>
+                        {totalStatutoryCN > 0 && (
+                          <span className="bg-white/20 text-white text-xs font-bold px-3 py-1 rounded-lg">
+                            Statutory Total: ₹{fmt(totalStatutoryCN)}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="bg-indigo-50 p-4 space-y-4">
+                        {/* Info banner */}
+                        <div className="bg-white border border-indigo-200 rounded-lg px-3 py-2 text-[11px] text-indigo-700">
+                          <p className="font-semibold mb-0.5">
+                            How statutory CN works:
+                          </p>
+                          <p className="text-indigo-600">
+                            CO PF = ER PF + EE PF &nbsp;·&nbsp; CO ESI = ER ESIC
+                            + EE ESIC &nbsp;·&nbsp; Each reduces the
+                            corresponding statutory liability for this invoice.
+                          </p>
+                        </div>
+
+                        {/* ── CO PF Block (ER PF + EE PF) ── */}
+                        <div className="bg-white border border-indigo-200 rounded-xl p-3">
+                          <div className="flex items-center justify-between mb-3">
+                            <p className="text-xs font-black text-indigo-800 uppercase tracking-wider">
+                              CO PF (Provident Fund)
+                            </p>
+                            <div className="flex items-center gap-2">
+                              {co_pf_cn > 0 && (
+                                <span
+                                  className={`text-xs font-bold px-2 py-0.5 rounded-lg ${
+                                    co_pf_cn > num(selectedDetails?.net_co_pf)
+                                      ? "bg-red-100 text-red-700"
+                                      : "bg-indigo-100 text-indigo-700"
+                                  }`}
+                                >
+                                  = ₹{fmt(co_pf_cn)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <StatutoryInputRow
+                            label="CO PF"
+                            fieldKey="coPf"
+                            value={formData.coPf}
+                            hint={selectedDetails?.net_co_pf}
+                            onChange={handleChange}
+                            colorClass="border-indigo-200 focus:border-indigo-500"
+                          />
+                          <ErrorMsg field="coPf" />
+                        </div>
+
+                        {/* ── CO ESI Block (ER ESIC + EE ESIC) ── */}
+                        <div className="bg-white border border-teal-200 rounded-xl p-3">
+                          <div className="flex items-center justify-between mb-3">
+                            <p className="text-xs font-black text-teal-800 uppercase tracking-wider">
+                              CO ESI (Employee State Insurance)
+                            </p>
+                            <div className="flex items-center gap-2">
+                              {co_esi_cn > 0 && (
+                                <span
+                                  className={`text-xs font-bold px-2 py-0.5 rounded-lg ${
+                                    co_esi_cn > num(selectedDetails?.net_co_esi)
+                                      ? "bg-red-100 text-red-700"
+                                      : "bg-teal-100 text-teal-700"
+                                  }`}
+                                >
+                                  = ₹{fmt(co_esi_cn)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <StatutoryInputRow
+                            label="CO ESI"
+                            fieldKey="coEsi"
+                            value={formData.coEsi}
+                            hint={selectedDetails?.net_co_esi}
+                            onChange={handleChange}
+                            colorClass="border-teal-200 focus:border-teal-500"
+                          />
+                          <ErrorMsg field="coEsi" />
+                        </div>
+
+                        {/* ── LWF · PT · Other Ded ── */}
+                        <div className="grid grid-cols-3 gap-3">
+                          {/* LWF */}
+                          <div className="bg-white border border-orange-200 rounded-xl p-3">
+                            <p className="text-xs font-black text-orange-800 uppercase tracking-wider mb-2">
+                              LWF Tax
+                            </p>
+                            <StatutoryInputRow
+                              label="LWF"
+                              fieldKey="lwfCN"
+                              value={formData.lwfCN}
+                              hint={selectedDetails?.net_lwf_tax}
+                              onChange={handleChange}
+                              colorClass="border-orange-200 focus:border-orange-500"
+                            />
+                            <p className="text-[10px] text-orange-500 mt-1">
+                              Labour Welfare Fund
+                            </p>
+                            <ErrorMsg field="lwfCN" />
+                          </div>
+
+                          {/* PT */}
+                          <div className="bg-white border border-purple-200 rounded-xl p-3">
+                            <p className="text-xs font-black text-purple-800 uppercase tracking-wider mb-2">
+                              PT Tax
+                            </p>
+                            <StatutoryInputRow
+                              label="PT"
+                              fieldKey="ptCN"
+                              value={formData.ptCN}
+                              hint={selectedDetails?.net_pt_tax}
+                              onChange={handleChange}
+                              colorClass="border-purple-200 focus:border-purple-500"
+                            />
+                            <p className="text-[10px] text-purple-500 mt-1">
+                              Professional Tax
+                            </p>
+                            <ErrorMsg field="ptCN" />
+                          </div>
+
+                          {/* Other Ded */}
+                          <div className="bg-white border border-gray-200 rounded-xl p-3">
+                            <p className="text-xs font-black text-gray-700 uppercase tracking-wider mb-2">
+                              Other Ded
+                            </p>
+                            <StatutoryInputRow
+                              label="Other"
+                              fieldKey="otherDedCN"
+                              value={formData.otherDedCN}
+                              hint={selectedDetails?.net_other_ded}
+                              onChange={handleChange}
+                              colorClass="border-gray-200 focus:border-gray-500"
+                            />
+                            <p className="text-[10px] text-gray-400 mt-1">
+                              Other deductions
+                            </p>
+                            <ErrorMsg field="otherDedCN" />
+                          </div>
+                        </div>
+
+                        {/* Live statutory total summary */}
+                        {co_pf_cn +
+                          co_esi_cn +
+                          num(formData.lwfCN) +
+                          num(formData.ptCN) +
+                          num(formData.otherDedCN) >
+                          0 && (
+                          <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="bg-white border border-indigo-200 rounded-xl p-3"
+                          >
+                            <p className="text-[10px] font-black text-indigo-700 uppercase tracking-wider mb-2 flex items-center gap-1">
+                              <ShieldCheck className="w-3 h-3" /> Statutory CN
+                              Summary
+                            </p>
+                            <div className="grid grid-cols-5 gap-2">
+                              {[
+                                {
+                                  label: "CO PF",
+                                  value: co_pf_cn,
+                                  sub: "Provident Fund",
+                                  color:
+                                    "border-indigo-200 text-indigo-800 bg-indigo-50",
+                                },
+                                {
+                                  label: "CO ESI",
+                                  value: co_esi_cn,
+                                  sub: "Employee State Insurance",
+                                  color:
+                                    "border-teal-200 text-teal-800 bg-teal-50",
+                                },
+                                {
+                                  label: "LWF Tax",
+                                  value: num(formData.lwfCN),
+                                  sub: "Labour Welfare",
+                                  color:
+                                    "border-orange-200 text-orange-800 bg-orange-50",
+                                },
+                                {
+                                  label: "PT Tax",
+                                  value: num(formData.ptCN),
+                                  sub: "Prof. Tax",
+                                  color:
+                                    "border-purple-200 text-purple-800 bg-purple-50",
+                                },
+                                {
+                                  label: "Other Ded",
+                                  value: num(formData.otherDedCN),
+                                  sub: "Other",
+                                  color:
+                                    "border-gray-200 text-gray-700 bg-gray-50",
+                                },
+                              ].map(({ label, value, sub, color }) =>
+                                value > 0 ? (
+                                  <div
+                                    key={label}
+                                    className={`rounded-lg border px-2 py-2 text-center ${color}`}
+                                  >
+                                    <p className="text-[9px] font-bold uppercase tracking-wide">
+                                      {label}
+                                    </p>
+                                    <p className="text-sm font-black mt-0.5">
+                                      ₹{fmt(value)}
+                                    </p>
+                                    <p className="text-[8px] mt-0.5 opacity-60">
+                                      {sub}
+                                    </p>
+                                  </div>
+                                ) : null
+                              )}
+                            </div>
+                          </motion.div>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* ── Remarks ── */}
                 <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
                   <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
                     Remarks
@@ -1476,7 +1935,7 @@ const AddCNBadDebtModal = ({
                   />
                 </div>
 
-                {/* Impact Summary */}
+                {/* ── Impact Summary ── */}
                 {selectedDetails && totalCN > 0 && (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
@@ -1502,6 +1961,11 @@ const AddCNBadDebtModal = ({
                         <p className="text-lg font-bold text-violet-600 mt-1">
                           − ₹{fmt(totalCN)}
                         </p>
+                        {totalStatutoryCN > 0 && (
+                          <p className="text-[10px] text-indigo-500 mt-0.5">
+                            incl. Statutory ₹{fmt(totalStatutoryCN)}
+                          </p>
+                        )}
                       </div>
                       <div>
                         <p className="text-xs text-gray-500 uppercase tracking-wider">
@@ -1524,8 +1988,40 @@ const AddCNBadDebtModal = ({
                       </div>
                     </div>
 
+                    {/* Statutory impact line */}
+                    {totalStatutoryCN > 0 && (
+                      <div className="mt-3 pt-3 border-t border-amber-200 flex items-center gap-4 flex-wrap text-xs">
+                        {co_pf_cn > 0 && (
+                          <span className="text-indigo-700 font-medium">
+                            📋 CO PF ↓ ₹{fmt(co_pf_cn)}
+                          </span>
+                        )}
+                        {co_esi_cn > 0 && (
+                          <span className="text-teal-700 font-medium">
+                            📋 CO ESI ↓ ₹{fmt(co_esi_cn)}
+                          </span>
+                        )}
+                        {num(formData.lwfCN) > 0 && (
+                          <span className="text-orange-700 font-medium">
+                            📋 LWF ↓ ₹{fmt(formData.lwfCN)}
+                          </span>
+                        )}
+                        {num(formData.ptCN) > 0 && (
+                          <span className="text-purple-700 font-medium">
+                            📋 PT ↓ ₹{fmt(formData.ptCN)}
+                          </span>
+                        )}
+                        {num(formData.otherDedCN) > 0 && (
+                          <span className="text-gray-700 font-medium">
+                            📋 Other Ded ↓ ₹{fmt(formData.otherDedCN)}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* GST/TDS impact line */}
                     {(num(formData.gstCN) > 0 || num(formData.tdsCN) > 0) && (
-                      <div className="mt-3 pt-3 border-t border-amber-200 flex items-center gap-4 text-xs">
+                      <div className="mt-2 flex items-center gap-4 flex-wrap text-xs">
                         {num(formData.gstCN) > 0 && (
                           <span className="text-amber-700 font-medium">
                             📋 Net GST ↓ ₹{fmt(formData.gstCN)}
@@ -1539,7 +2035,7 @@ const AddCNBadDebtModal = ({
                       </div>
                     )}
 
-                    {/* ✅ FIXED: Over-limit warning explains which cap triggered */}
+                    {/* Over-limit warning */}
                     {overLimit && (
                       <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
                         <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
@@ -1547,17 +2043,16 @@ const AddCNBadDebtModal = ({
                           {limitedByOutstanding ? (
                             <>
                               CN total ₹{fmt(totalCN)} exceeds the outstanding
-                              amount ₹{fmt(num(selectedDetails.amountPayable))}.{" "}
+                              amount ₹{fmt(num(selectedDetails.amountPayable))}.
                               You cannot CN more than what is currently owed.
                               Reduce the amounts.
                             </>
                           ) : (
                             <>
                               CN total ₹{fmt(totalCN)} exceeds the invoice value
-                              excl. TDS (Net Pay + Net Verto + Net GST = ₹
-                              {fmt(invoiceMinusTds)}). TDS is a govt. liability
-                              and cannot be written off via CN. Reduce the
-                              amounts.
+                              excl. TDS (₹{fmt(invoiceMinusTds)}). TDS is a
+                              govt. liability and cannot be written off via CN.
+                              Reduce the amounts.
                             </>
                           )}
                         </div>
