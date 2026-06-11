@@ -44,6 +44,8 @@ const AddPaymentReceivedModal = ({
   const [clientOptions, setClientOptions] = useState([]);
   const [saving, setSaving] = useState(false);
   const [showClientDropdown, setShowClientDropdown] = useState(false);
+  const [invoiceOptions, setInvoiceOptions] = useState([]);
+  const [showInvoiceDropdown, setShowInvoiceDropdown] = useState(false);
 
   /* ── View modal state ── */
   const [viewOpen, setViewOpen] = useState(false);
@@ -56,12 +58,19 @@ const AddPaymentReceivedModal = ({
         .select("id, bank_name");
       setBanks(data || []);
 
-      // Fetch clients from Supabase
       const { data: clientData } = await supabase
         .from("clients_master")
         .select("id, client_name")
         .order("client_name");
       setClientOptions(clientData || []);
+
+      // Fetch active invoices for searchable dropdown
+      const { data: invData } = await supabase
+        .from("outstanding_invoice_view")
+        .select("invoice_number, client_name, outstanding")
+        .gt("outstanding", 0)
+        .order("invoice_number", { ascending: false });
+      setInvoiceOptions(invData || []);
     };
     fetchBanks();
   }, []);
@@ -495,25 +504,77 @@ const AddPaymentReceivedModal = ({
                         className="space-y-4 pt-4 border-t border-blue-200"
                       >
                         <div className="grid grid-cols-2 gap-4">
-                          {/* Invoice Number */}
+                          {/* Invoice Number — Searchable Dropdown */}
                           <div>
                             <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
-                              Invoice Number{" "}
-                              <span className="text-rose-600">*</span>
+                              Invoice Number <span className="text-rose-600">*</span>
                             </label>
                             <input
                               type="text"
                               value={formData.invoiceNumber}
-                              onChange={(e) =>
-                                handleChange("invoiceNumber", e.target.value)
-                              }
+                              onChange={(e) => {
+                                handleChange("invoiceNumber", e.target.value);
+                                setShowInvoiceDropdown(true);
+                              }}
+                              onFocus={() => setShowInvoiceDropdown(true)}
+                              onBlur={() => setTimeout(() => setShowInvoiceDropdown(false), 200)}
                               className={`w-full bg-white border text-gray-900 px-4 py-2.5 rounded-lg focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 ${
-                                showErrors && errors.invoiceNumber
-                                  ? "border-rose-500"
-                                  : "border-gray-300"
+                                showErrors && errors.invoiceNumber ? "border-rose-500" : "border-gray-300"
                               }`}
-                              placeholder="INV-001"
+                              placeholder="Search invoice number..."
+                              autoComplete="off"
                             />
+
+                            {showInvoiceDropdown && (
+                              <div className="mt-2 bg-white border border-gray-200 rounded-xl shadow max-h-60 overflow-y-auto">
+                                {invoiceOptions
+                                  .filter((inv) =>
+                                    formData.invoiceNumber.length === 0
+                                      ? true
+                                      : (inv.invoice_number || "")
+                                          .toLowerCase()
+                                          .includes(formData.invoiceNumber.toLowerCase()) ||
+                                        (inv.client_name || "")
+                                          .toLowerCase()
+                                          .includes(formData.invoiceNumber.toLowerCase())
+                                  )
+                                  .slice(0, 20)
+                                  .map((inv) => (
+                                    <button
+                                      key={inv.invoice_number}
+                                      type="button"
+                                      onMouseDown={(e) => e.preventDefault()}
+                                      onClick={() => {
+                                        handleChange("invoiceNumber", inv.invoice_number);
+                                        setShowInvoiceDropdown(false);
+                                      }}
+                                      className="w-full text-left px-4 py-2.5 hover:bg-emerald-50 border-b border-gray-100 last:border-0 transition-colors"
+                                    >
+                                      <div className="flex items-start justify-between">
+                                        <div>
+                                          <div className="font-medium">{inv.invoice_number}</div>
+                                          <div className="text-xs text-gray-500">{inv.client_name}</div>
+                                        </div>
+                                        <div className="text-xs text-gray-500">₹{Number(inv.outstanding || 0).toLocaleString("en-IN")} OS</div>
+                                      </div>
+                                    </button>
+                                  ))}
+
+                                {invoiceOptions.filter((inv) =>
+                                  formData.invoiceNumber.length === 0
+                                    ? true
+                                    : (inv.invoice_number || "")
+                                        .toLowerCase()
+                                        .includes(formData.invoiceNumber.toLowerCase()) ||
+                                      (inv.client_name || "")
+                                        .toLowerCase()
+                                        .includes(formData.invoiceNumber.toLowerCase())
+                                ).length === 0 && (
+                                  <div className="p-3 text-xs text-gray-500">No invoices found</div>
+                                )}
+                              </div>
+                            )}
+
                             {invoiceDetails && (
                               <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-xs space-y-0.5">
                                 <p>
@@ -523,10 +584,7 @@ const AddPaymentReceivedModal = ({
                                   <b>Ledger:</b> {invoiceDetails.ledger_name}
                                 </p>
                                 <p>
-                                  <b>Outstanding:</b> ₹
-                                  {Number(
-                                    invoiceDetails.outstanding || 0
-                                  ).toLocaleString("en-IN")}
+                                  <b>Outstanding:</b> ₹{Number(invoiceDetails.outstanding || 0).toLocaleString("en-IN")}
                                 </p>
                                 {invoiceDetails.bank_id && (
                                   <p className="text-amber-600">
@@ -535,6 +593,7 @@ const AddPaymentReceivedModal = ({
                                 )}
                               </div>
                             )}
+
                             <ErrorMessage error={errors.invoiceNumber} />
                           </div>
 
