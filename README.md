@@ -123,7 +123,7 @@ Note: `sessionStorage` means the popup won't reappear on refresh in the same tab
 - To persist the popup across tabs, switch from `sessionStorage` to `localStorage` in `src/utils/popupManager.js`.
 - Use the browser console to inspect `sessionStorage` keys `verto_session_id` and `verto_live_popup_shown` during login flow.
 
-## Next steps I can help with
+
 
 - Replace `src/lib/supabaseClient.js` with env-based code and add `.env.example`.
 - Generate SQL DDL for the tables/views referenced in the project.
